@@ -70,7 +70,7 @@ private struct MeetingRow: View {
             HStack(alignment: .top, spacing: 12) {
                 Text(Format.time(meeting.createdAt)).font(.callout.monospacedDigit()).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(meeting.title.isEmpty ? "Untitled meeting" : meeting.title).bold()
+                    Text(title).bold()
                     if !preview.isEmpty { Text(preview).lineLimit(1).foregroundStyle(.secondary) }
                 }
                 Spacer()
@@ -83,8 +83,11 @@ private struct MeetingRow: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
         .accessibilityIdentifier("meeting-row")
     }
+
+    private var title: String { meeting.title.isEmpty ? "Untitled meeting" : meeting.title }
 
     private var preview: String {
         let summaryLine = meeting.summary?.components(separatedBy: .newlines)
