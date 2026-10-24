@@ -1,0 +1,70 @@
+name: OpenWispr
+options:
+  bundleIdPrefix: io.github.jtdelia
+  deploymentTarget:
+    macOS: "27.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    MACOSX_DEPLOYMENT_TARGET: "27.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+packages:
+  OpenWisprCore:
+    path: Packages/OpenWisprCore
+  OpenWisprEngines:
+    path: Packages/OpenWisprEngines
+targets:
+  OpenWispr:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/OpenWispr
+    dependencies:
+      - package: OpenWisprCore
+      - package: OpenWisprEngines
+    entitlements:
+      path: App/OpenWispr/OpenWispr.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    info:
+      path: App/OpenWispr/Info.plist
+      properties:
+        CFBundleDisplayName: OpenWispr
+        CFBundleName: OpenWispr
+        LSApplicationCategoryType: public.app-category.productivity
+        LSMinimumSystemVersion: "27.0"
+        NSHumanReadableCopyright: "MIT License"
+        NSMicrophoneUsageDescription: OpenWispr records your voice while you dictate and while it takes meeting notes.
+        NSSpeechRecognitionUsageDescription: OpenWispr uses Apple’s on-device speech recognition to transcribe your dictations and meetings.
+        NSAudioCaptureUsageDescription: OpenWispr records the call audio of meetings you ask it to take notes in.
+        NSAppleEventsUsageDescription: OpenWispr pastes your dictations into the app you are using.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.jtdelia.openwispr-swift
+        PRODUCT_NAME: OpenWispr
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        COMBINE_HIDPI_IMAGES: YES
+    scheme:
+      testTargets:
+        - OpenWisprUITests
+  OpenWisprUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: App/OpenWisprUITests
+    dependencies:
+      - target: OpenWispr
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.jtdelia.openwispr-swift.uitests
+        TEST_TARGET_NAME: OpenWispr
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: YES
