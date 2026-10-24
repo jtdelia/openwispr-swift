@@ -95,7 +95,9 @@ final class MicrophoneCapture: @unchecked Sendable {
         if let device = AudioDevices.deviceId(forUid: deviceUid) ?? AudioDevices.defaultInput() {
             input.withAUAudioUnit { unit in try? unit.setDeviceID(device) }
         }
-        let format = input.outputFormat(forBus: 0)
+        // After a device change the output side still reports the previous device's format; tapping with it
+        // fails with -10868. The input side is the hardware format the tap must match.
+        let format = input.inputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureError.noInput }
         let resampler = SendableResampler(try Resampler(from: format))
         try input.installAudioTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
