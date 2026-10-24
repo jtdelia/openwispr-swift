@@ -26,3 +26,10 @@ coverage/
 node_modules/
 __pycache__/
 .venv/
+
+# Swift and Xcode (the project is generated from project.yml by `make project`)
+*.xcodeproj/
+.build/
+.swiftpm/
+xcuserdata/
+DerivedData/

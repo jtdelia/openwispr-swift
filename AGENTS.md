@@ -4,15 +4,23 @@ Read this before changing anything in this repository.
 
 ## Project
 
-<!-- One paragraph: what this project is, its main language and framework, and where the
-     important code lives. Update this when you create a repository from the template. -->
+A native Swift 6 port of [OpenWispr](https://github.com/jtdelia/openwispr), a voice dictation and
+meeting notetaker for macOS 27. Platform-free logic (dictation state machine, shortcuts, prompts,
+meeting pipeline, stores, `Models`) lives in `Packages/OpenWisprCore` and is unit tested with Swift
+Testing. On-device engines (Apple Speech, Foundation Models, MLX, WhisperKit, Parakeet) live in
+`Packages/OpenWisprEngines`. The SwiftUI app in `App/OpenWispr` wires them to macOS: `AppModel.swift`
+is the composition root, `System/` holds Accessibility, the event tap and paste, `Audio/` holds capture,
+and `Hub/` and `FlowBar/` hold the UI. `OpenWispr.xcodeproj` is generated from `project.yml` by
+XcodeGen and is not committed. Launching with `--ui-testing` swaps in fake engines and recorders
+(`Testing/UITesting.swift`) for the XCUITest suite.
 
 ## Commands
 
-- `make lint`: lint and format checks
-- `make test`: the test suite
-- `make build`: build the project
-- `make check`: all three
+- `make lint`: SwiftLint in strict mode
+- `make test`: OpenWisprCore unit tests
+- `make build`: generate the Xcode project and build the app
+- `make ui-test`: the XCUITest suite
+- `make check`: lint, test and build
 
 Run `make lint` and `make test` before you say a change works.
 

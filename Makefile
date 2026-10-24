@@ -1,15 +1,39 @@
-# CI runs `make lint`, `make test`, and `make build`. Replace each placeholder
-# with this project's real commands, such as `npm run lint` or `swift test`.
+# CI runs `make lint`, `make test`, and `make build` on a macOS 27 runner with Xcode 27.
 
-.PHONY: lint test build check
+# macOS ties permission grants to the signing identity. Ad-hoc builds lose them on every rebuild;
+# `make run SIGNING_IDENTITY="Apple Development"` keeps them.
+SIGNING_IDENTITY ?= -
+DERIVED_DATA ?= build/DerivedData
+XCODEBUILD = xcodebuild -project OpenWispr.xcodeproj -scheme OpenWispr -destination 'platform=macOS' \
+	-derivedDataPath $(DERIVED_DATA) -skipMacroValidation -skipPackagePluginValidation
+APP = $(DERIVED_DATA)/Build/Products/Debug/OpenWispr.app
+
+.PHONY: lint test build check project ui-test run clean
+
+project:
+	xcodegen generate --quiet
 
 lint:
-	@echo "lint: not configured yet. Edit the lint target in Makefile."
+	swiftlint lint --strict --quiet
 
 test:
-	@echo "test: not configured yet. Edit the test target in Makefile."
+	swift test --package-path Packages/OpenWisprCore
 
-build:
-	@echo "build: not configured yet. Edit the build target in Makefile."
+build: project
+	$(XCODEBUILD) -configuration Debug -quiet build
+
+ui-test: project
+	$(XCODEBUILD) test -only-testing:OpenWisprUITests
+
+run: build
+ifneq ($(SIGNING_IDENTITY),-)
+	codesign --force --options runtime --sign "$(SIGNING_IDENTITY)" $(APP)/Contents/MacOS/*.dylib
+	codesign --force --options runtime --entitlements App/OpenWispr/OpenWispr.entitlements \
+		--sign "$(SIGNING_IDENTITY)" $(APP)
+endif
+	open $(APP)
 
 check: lint test build
+
+clean:
+	rm -rf $(DERIVED_DATA) OpenWispr.xcodeproj

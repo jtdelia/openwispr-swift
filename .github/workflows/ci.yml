@@ -15,15 +15,20 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install tools
+        run: |
+          for tool in xcodegen swiftlint; do
+            command -v "$tool" >/dev/null || brew install "$tool"
+          done
       - run: make lint
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,12 +36,40 @@ jobs:
       - run: make test
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install tools
+        run: |
+          for tool in xcodegen swiftlint; do
+            command -v "$tool" >/dev/null || brew install "$tool"
+          done
+      - name: Install the Metal toolchain
+        run: |
+          xcodebuild -showComponent MetalToolchain | grep -q "Status: installed" \
+            || xcodebuild -downloadComponent MetalToolchain
       - run: make build
+
+  ui-test:
+    name: UI tests
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install tools
+        run: |
+          for tool in xcodegen swiftlint; do
+            command -v "$tool" >/dev/null || brew install "$tool"
+          done
+      - name: Install the Metal toolchain
+        run: |
+          xcodebuild -showComponent MetalToolchain | grep -q "Status: installed" \
+            || xcodebuild -downloadComponent MetalToolchain
+      - run: make ui-test
 
   workflows:
     name: lint workflows
@@ -94,7 +127,7 @@ jobs:
   # The one check to mark as required in branch protection.
   ci-success:
     if: always()
-    needs: [lint, test, build, workflows, secrets, spelling, formatting]
+    needs: [lint, test, build, ui-test, workflows, secrets, spelling, formatting]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job failed or was cancelled
