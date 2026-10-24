@@ -1,0 +1,80 @@
+name: Build task
+description: One atomic, independently shippable step. Written so an agent can implement it without asking questions.
+labels: ["type:task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A good task fits in one pull request. Add the `agent-ready` label when it is ready
+        for an agent to implement. Any open issue listed under **Blocked by** stops the agent from starting.
+  - type: dropdown
+    id: commit-type
+    attributes:
+      label: Change type
+      description: Used as the conventional-commit type of the pull request title.
+      options:
+        - feat
+        - fix
+        - refactor
+        - test
+        - docs
+        - chore
+    validations:
+      required: true
+  - type: input
+    id: plan
+    attributes:
+      label: Plan
+      description: The parent plan issue, if any.
+      placeholder: "#12"
+    validations:
+      required: false
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence describing the outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Files, functions, links, and decisions already made. Point at existing code to follow.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete, checkable outcomes. The pull request must satisfy every item.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Nearby changes that must not be made in this task.
+    validations:
+      required: true
+  - type: input
+    id: blocked-by
+    attributes:
+      label: Blocked by
+      description: Issues that must be closed first, separated by spaces. Leave empty if none.
+      placeholder: "#13 #14"
+    validations:
+      required: false
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Commands to run and what you should observe when the task is done.
+      placeholder: |
+        make test
+        Then: ...
+    validations:
+      required: true

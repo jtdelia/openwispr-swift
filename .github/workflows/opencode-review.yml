@@ -1,0 +1,113 @@
+name: AI review
+
+# Reviews a pull request once when it opens ready for review, and again each time a
+# draft is marked ready. Comment "/oc review this again" for another pass on demand.
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  review:
+    # Skip drafts, forks (their tokens are read-only), Dependabot, and agent pull requests,
+    # which open as drafts and get reviewed when marked ready.
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      !(github.event.action == 'opened' && startsWith(github.head_ref, 'opencode/'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      OPENCODE_PERMISSION: >-
+        {"edit": "deny", "webfetch": "deny",
+         "bash": {"*": "deny", "git diff*": "allow", "git log*": "allow", "git show*": "allow"}}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: model
+        uses: ./.github/actions/pick-free-model
+
+      - name: Load the review prompt
+        id: prompt
+        run: |
+          {
+            echo 'text<<PROMPT_EOF'
+            cat .github/opencode/review-prompt.md
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Review with the best free model
+        id: primary
+        if: steps.model.outputs.primary != ''
+        continue-on-error: true
+        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: ${{ steps.model.outputs.primary }}
+          use_github_token: true
+          share: false
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Retry with the next free model
+        id: fallback
+        if: steps.primary.outcome == 'failure' && steps.model.outputs.fallback != ''
+        continue-on-error: true
+        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          model: ${{ steps.model.outputs.fallback }}
+          use_github_token: true
+          share: false
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Review with Kiro CLI
+        if: steps.primary.outcome != 'success' && steps.fallback.outcome != 'success'
+        env:
+          KIRO_API_KEY: ${{ secrets.KIRO_API_KEY }}
+          KIRO_MODEL: gpt-5.6-luna
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$KIRO_API_KEY" ]; then
+            echo "::warning title=No review::No free OpenCode model worked and the KIRO_API_KEY secret is not set."
+            exit 0
+          fi
+          curl -fsSL https://cli.kiro.dev/install | bash
+          export PATH="$HOME/.local/bin:$PATH"
+
+          git diff "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/pr.diff"
+          {
+            cat .github/opencode/review-prompt.md
+            printf '\nThe pull request and its diff (truncated to 200 KB) are below.\n\n'
+            printf '<pull_request>\nTitle: %s\n\n%s\n</pull_request>\n\n<diff>\n' "$PR_TITLE" "$PR_BODY"
+            head -c 200000 "$RUNNER_TEMP/pr.diff"
+            printf '\n</diff>\n'
+          } > "$RUNNER_TEMP/prompt.md"
+
+          kiro-cli chat --v3 --no-interactive --model "$KIRO_MODEL" --trust-tools=read_file,grep_search \
+            < "$RUNNER_TEMP/prompt.md" > "$RUNNER_TEMP/review.md"
+
+          # Kiro narrates its progress before the review itself; post from "## Summary" on.
+          {
+            python3 -c 'import sys; t = sys.stdin.read(); i = t.find("## Summary"); print(t[max(i, 0):])' \
+              < "$RUNNER_TEMP/review.md"
+            printf '\n---\n<sub>Reviewed by Kiro CLI (%s) because no free OpenCode model was available.</sub>\n' "$KIRO_MODEL"
+          } | gh pr comment "$PR_NUMBER" --body-file -

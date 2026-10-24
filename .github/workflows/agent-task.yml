@@ -1,0 +1,117 @@
+name: Agent task
+
+# Add the "agent-ready" label to a build task issue to have OpenCode implement it.
+# The agent opens a draft pull request that closes the issue. Marking it ready for
+# review starts the AI review. Remove and re-add the label to try again.
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: agent-task-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  implement:
+    if: github.event.label.name == 'agent-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      ISSUE: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check blocking issues
+        id: blockers
+        env:
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          listed=$(printf '%s\n' "$BODY" \
+            | awk '/^### Blocked by/ {on=1; next} /^### / {on=0} on' \
+            | grep -oE '#[0-9]+' | tr -d '#' || true)
+          linked=$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE/dependencies/blocked_by" \
+            --jq '.[].number' 2>/dev/null || true)
+          open=()
+          for n in $(printf '%s\n%s\n' "$listed" "$linked" | sort -un); do
+            if [ "$(gh issue view "$n" --json state --jq .state)" = "OPEN" ]; then open+=("#$n"); fi
+          done
+          if [ "${#open[@]}" -gt 0 ]; then
+            gh issue comment "$ISSUE" --body "Not starting: still blocked by ${open[*]}. Re-add \`agent-ready\` once they are closed."
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: model
+        if: steps.blockers.outputs.blocked != 'true'
+        uses: ./.github/actions/pick-free-model
+
+      - name: Report that no model is available
+        if: steps.blockers.outputs.blocked != 'true' && steps.model.outputs.primary == ''
+        run: |
+          gh issue comment "$ISSUE" --body "No free OpenCode model is available right now. Re-add \`agent-ready\` to try again later."
+
+      - name: Load the task prompt
+        id: prompt
+        if: steps.model.outputs.primary != ''
+        run: |
+          {
+            echo 'text<<PROMPT_EOF'
+            cat .github/opencode/task-prompt.md
+            echo 'PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Implement with the best free model
+        id: primary
+        if: steps.model.outputs.primary != ''
+        continue-on-error: true
+        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        with:
+          model: ${{ steps.model.outputs.primary }}
+          share: false
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Retry with the next free model
+        id: fallback
+        if: steps.primary.outcome == 'failure' && steps.model.outputs.fallback != ''
+        continue-on-error: true
+        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        with:
+          model: ${{ steps.model.outputs.fallback }}
+          share: false
+          prompt: ${{ steps.prompt.outputs.text }}
+
+      - name: Make the pull request a draft with a conventional title
+        if: steps.primary.outcome == 'success' || steps.fallback.outcome == 'success'
+        env:
+          BODY: ${{ github.event.issue.body }}
+          TITLE: ${{ github.event.issue.title }}
+        run: |
+          pr=$(gh pr list --state open --json number,headRefName \
+            --jq "map(select(.headRefName | startswith(\"opencode/issue${ISSUE}-\"))) | .[0].number // empty")
+          if [ -z "$pr" ]; then
+            echo "The agent made no changes, so there is no pull request."
+            exit 0
+          fi
+          type=$(printf '%s\n' "$BODY" | awk '/^### Change type/ {on=1; next} /^### / {on=0} on && NF {print; exit}')
+          if ! printf '%s' "$TITLE" | grep -qE '^[a-z]+(\([^)]+\))?!?: '; then
+            TITLE="${type:-feat}: $TITLE"
+          fi
+          gh pr ready "$pr" --undo
+          gh pr edit "$pr" --title "$TITLE"
+
+      - name: Remove the agent-ready label
+        if: always()
+        run: gh issue edit "$ISSUE" --remove-label agent-ready
+
+      - name: Fail if the agent did not run
+        if: steps.model.outputs.primary != '' && steps.primary.outcome != 'success' && steps.fallback.outcome != 'success'
+        run: exit 1

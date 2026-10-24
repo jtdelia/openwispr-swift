@@ -1,0 +1,32 @@
+name: Pick a free OpenCode model
+description: >-
+  Chooses the best free OpenCode model that is live right now. In private repositories,
+  only models whose provider does not train on your data qualify. Outputs are empty when
+  no model qualifies.
+
+outputs:
+  primary:
+    description: Best model, as provider/model. Empty when none qualify.
+    value: ${{ steps.pick.outputs.primary }}
+  fallback:
+    description: Second-best model, tried if the first one fails. May be empty.
+    value: ${{ steps.pick.outputs.fallback }}
+
+runs:
+  using: composite
+  steps:
+    - id: pick
+      shell: bash
+      env:
+        PRIVATE_REPO: ${{ github.event.repository.private }}
+      run: |
+        flags=()
+        if [ "$PRIVATE_REPO" = "true" ]; then flags+=(--private); fi
+        mapfile -t models < <(python3 "$GITHUB_ACTION_PATH/pick_free_model.py" "${flags[@]}" || true)
+        echo "primary=${models[0]:-}" >> "$GITHUB_OUTPUT"
+        echo "fallback=${models[1]:-}" >> "$GITHUB_OUTPUT"
+        if [ "${#models[@]}" -eq 0 ]; then
+          echo "::warning title=No free model::No free OpenCode model is available${flags[*]:+ for private repositories} right now."
+        else
+          echo "Free models, best first: ${models[*]}"
+        fi

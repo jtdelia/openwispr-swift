@@ -1,0 +1,8 @@
+{
+  "prefer": [
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
+    "big-pickle"
+  ],
+  "exclude": []
+}

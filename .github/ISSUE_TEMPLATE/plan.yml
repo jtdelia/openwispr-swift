@@ -1,0 +1,42 @@
+name: Plan
+description: A larger goal that will be split into build tasks. Link each task as a sub-issue.
+title: "plan: "
+labels: ["type:plan"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        After creating this plan, open one **Build task** per atomic step and add each as a sub-issue
+        of this plan (Create sub-issue, or Add existing issue, in the sidebar).
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What will be true when this plan is done? One short paragraph.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and decisions
+      description: Background, constraints, and design decisions that every task should follow.
+    validations:
+      required: true
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Task outline
+      description: The build tasks in order. Replace each line with its issue link once created.
+      placeholder: |
+        - [ ] Add the data model
+        - [ ] Add the API endpoint (blocked by the data model)
+        - [ ] Add the UI (blocked by the API endpoint)
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Related work this plan deliberately does not cover.
+    validations:
+      required: false
