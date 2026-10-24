@@ -5,7 +5,8 @@ import Observation
 @MainActor
 public protocol SecretStore: AnyObject {
     func secret(_ account: String) -> String?
-    func setSecret(_ account: String, _ value: String?)
+    /// Whether the store now holds `value` (or, for nil or empty, holds nothing).
+    func setSecret(_ account: String, _ value: String?) -> Bool
 }
 
 @MainActor
@@ -13,7 +14,10 @@ public final class InMemorySecretStore: SecretStore {
     public private(set) var secrets: [String: String]
     public init(_ secrets: [String: String] = [:]) { self.secrets = secrets }
     public func secret(_ account: String) -> String? { secrets[account] }
-    public func setSecret(_ account: String, _ value: String?) { secrets[account] = value?.isEmpty == false ? value : nil }
+    public func setSecret(_ account: String, _ value: String?) -> Bool {
+        secrets[account] = value?.isEmpty == false ? value : nil
+        return true
+    }
 }
 
 let jsonEncoder: JSONEncoder = {
@@ -135,10 +139,11 @@ public final class DataStore {
                 config.apiKey = ""
                 migratedKeys = true
             } else if !config.apiKey.isEmpty {
-                secrets.setSecret(role.rawValue, config.apiKey)
-                migratedKeys = true
+                // A key the secret store refuses stays in the file rather than being lost.
+                if secrets.setSecret(role.rawValue, config.apiKey) { migratedKeys = true }
+            } else {
+                config.apiKey = secrets.secret(role.rawValue) ?? ""
             }
-            config.apiKey = secrets.secret(role.rawValue) ?? ""
             settings[role] = .endpoint(config)
         }
         self.settings = settings
@@ -213,8 +218,7 @@ public final class DataStore {
         var stored = settings
         for role in ModelRole.allCases {
             guard case var .endpoint(config) = stored[role] else { continue }
-            secrets.setSecret(role.rawValue, config.apiKey)
-            config.apiKey = ""
+            if secrets.setSecret(role.rawValue, config.apiKey) { config.apiKey = "" }
             stored[role] = .endpoint(config)
         }
         writeJsonAtomic(dataURL, StoredData(settings: stored, dictionary: dictionary, snippets: snippets))

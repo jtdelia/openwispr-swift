@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import OpenWisprCore
 
 /// Global keyboard tap. Reports every key transition and swallows a non-modifier key only when, together
 /// with the held modifiers, it exactly completes a registered shortcut. Needs Accessibility.
@@ -79,7 +80,8 @@ final class KeyTap {
             let isDown = type == .keyDown
             if !autorepeat { onKey?(keycode, isDown) }
             if isDown {
-                if shortcuts.contains(heldModifiers.union([keycode])) {
+                let keys = heldModifiers.union([keycode])
+                if shortcuts.contains(keys) || shortcuts.contains(keys.subtracting([Key.capsLock])) {
                     swallowedKeyUps.insert(keycode)
                     return false
                 }

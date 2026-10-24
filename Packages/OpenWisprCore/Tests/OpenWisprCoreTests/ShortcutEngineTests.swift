@@ -70,6 +70,36 @@ struct ShortcutEngineTests {
         #expect(h.down(Key.fn) == [])
     }
 
+    @Test func capsLockLeftOnDoesNotBlockShortcuts() {
+        let h = Harness()
+        #expect(h.down(Key.capsLock) == [])
+        #expect(h.down(Key.fn) == [.pttStart])
+        #expect(h.down(Key.space) == [.handsFreeLock])
+        _ = h.up(Key.space)
+        _ = h.up(Key.fn)
+        #expect(h.down(Key.fn) == [.handsFreeStop])
+        _ = h.up(Key.fn)
+        #expect(h.down(Key.esc) == [.dismiss])
+        _ = h.up(Key.esc)
+        _ = h.down(Key.ctrl)
+        _ = h.down(Key.cmd)
+        #expect(h.down(Key.v) == [.pasteLast])
+        _ = h.up(Key.v)
+        _ = h.up(Key.cmd)
+        _ = h.up(Key.ctrl)
+        _ = h.down(Key.ctrl)
+        _ = h.down(Key.cmd)
+        #expect(h.down(Key.v) == [.pasteLast], "Releasing every key but Caps Lock re-arms one-shot shortcuts")
+    }
+
+    @Test func capsLockStillWorksAsABoundKey() {
+        let h = Harness()
+        h.engine.setShortcuts(Shortcuts(ptt: [Key.capsLock], handsFree: [Key.fn, Key.space], pasteLast: [], copyLast: []))
+        #expect(h.down(Key.capsLock) == [.pttStart])
+        h.advance(2000)
+        #expect(h.up(Key.capsLock) == [.pttEnd])
+    }
+
     @Test func labelsCombos() {
         #expect(Key.comboLabel(Shortcuts.defaults.handsFree) == "fn + Space")
     }

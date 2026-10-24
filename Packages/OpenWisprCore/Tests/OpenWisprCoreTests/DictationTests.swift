@@ -260,9 +260,31 @@ struct DictationTests {
     }
 }
 
+/// A Keychain that is locked or denied: every write fails.
+@MainActor
+private final class RefusingSecretStore: SecretStore {
+    func secret(_ account: String) -> String? { nil }
+    func setSecret(_ account: String, _ value: String?) -> Bool { false }
+}
+
 @MainActor
 @Suite("Data store")
 struct DataStoreTests {
+    @Test func `keeps an API key in the settings file when the secret store refuses it`() throws {
+        let directory = try temporaryDirectory()
+        let store = DataStore(directory: directory, secrets: RefusingSecretStore())
+        store.updateSelection(.speechToText, .endpoint(baseUrl: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo", apiKey: "gsk-secret"))
+
+        let reopened = DataStore(directory: directory, secrets: RefusingSecretStore())
+        #expect(reopened.settings.speechToText.endpoint?.apiKey == "gsk-secret")
+        let secrets = InMemorySecretStore()
+        let recovered = DataStore(directory: directory, secrets: secrets)
+        #expect(recovered.settings.speechToText.endpoint?.apiKey == "gsk-secret")
+        #expect(secrets.secret("speechToText") == "gsk-secret")
+        let file = try String(contentsOf: directory.appending(path: "openwispr.json"), encoding: .utf8)
+        #expect(!file.contains("gsk-secret"), "Moves into the secret store once it accepts the key")
+    }
+
     @Test func `keeps API keys in the secret store and out of the settings file`() throws {
         let directory = try temporaryDirectory()
         let secrets = InMemorySecretStore()

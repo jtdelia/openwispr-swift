@@ -20,20 +20,22 @@ final class KeychainSecretStore: SecretStore {
         return String(data: data, encoding: .utf8)
     }
 
-    func setSecret(_ account: String, _ value: String?) {
+    func setSecret(_ account: String, _ value: String?) -> Bool {
         let query = baseQuery(account)
         guard let value, !value.isEmpty else {
-            SecItemDelete(query as CFDictionary)
-            return
+            let status = SecItemDelete(query as CFDictionary)
+            return status == errSecSuccess || status == errSecItemNotFound
         }
         let data = Data(value.utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        var status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = data
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-            SecItemAdd(item as CFDictionary, nil)
+            status = SecItemAdd(item as CFDictionary, nil)
         }
+        if status != errSecSuccess { print("openwispr: couldn't save \(account) to the Keychain: \(status)") }
+        return status == errSecSuccess
     }
 
     private func baseQuery(_ account: String) -> [String: Any] {

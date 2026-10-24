@@ -299,15 +299,24 @@ final class AppModel {
     }
 
     /// Carries settings, history, meetings and downloaded models over from the Electron app on first launch.
-    /// APFS clones the files, so even large models take no extra space.
+    /// APFS clones the files, so even large models take no extra space. Copies land in a staging folder
+    /// that moves into place only once everything copied, so a failed import is retried on the next launch.
     private static func importElectronData(from source: URL, to directory: URL) {
         let manager = FileManager.default
         guard manager.fileExists(atPath: source.path) else { return }
-        try? manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        for name in ["openwispr.json", "history.json", "meetings.json", "meetings", "models"] {
-            let from = source.appending(path: name)
-            guard manager.fileExists(atPath: from.path) else { continue }
-            try? manager.copyItem(at: from, to: directory.appending(path: name))
+        let staging = directory.deletingLastPathComponent().appending(path: "OpenWispr-Swift.importing", directoryHint: .isDirectory)
+        do {
+            try? manager.removeItem(at: staging)
+            try manager.createDirectory(at: staging, withIntermediateDirectories: true)
+            for name in ["openwispr.json", "history.json", "meetings.json", "meetings", "models"] {
+                let from = source.appending(path: name)
+                guard manager.fileExists(atPath: from.path) else { continue }
+                try manager.copyItem(at: from, to: staging.appending(path: name))
+            }
+            try manager.moveItem(at: staging, to: directory)
+        } catch {
+            print("openwispr: couldn't import the Electron app's data: \(error)")
+            try? manager.removeItem(at: staging)
         }
     }
 

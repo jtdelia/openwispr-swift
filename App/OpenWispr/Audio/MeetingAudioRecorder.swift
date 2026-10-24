@@ -18,8 +18,10 @@ final class MeetingAudioRecorder: MeetingRecorder {
         Task {
             if MicrophonePermission.undetermined { _ = await MicrophonePermission.request() }
             guard activeSession == session else { return }
+            // Chunks and the stop report both hop to the main queue, which is FIFO, so the last chunk
+            // always reaches the controller before it hears the recording has flushed.
             let pipeline = MeetingPipeline(session: session, startedAt: epochMs()) { chunk in
-                Task { @MainActor in self.controller?.handleChunk(chunk) }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.controller?.handleChunk(chunk) } }
             }
             let mic = MicrophoneCapture()
             do {
@@ -54,7 +56,7 @@ final class MeetingAudioRecorder: MeetingRecorder {
         }
         stopCaptures()
         pipeline.finish { [weak self] in
-            Task { @MainActor in self?.controller?.recorderStopped(session: session) }
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.controller?.recorderStopped(session: session) } }
         }
     }
 

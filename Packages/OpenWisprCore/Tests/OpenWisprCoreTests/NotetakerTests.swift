@@ -86,3 +86,44 @@ struct NotetakerAttributionTests {
         #expect(forms[1].form("known_speaker_references[]").count == 2)
     }
 }
+
+/// Reports the recording flushed as soon as it is asked to stop.
+@MainActor
+private final class InstantRecorder: MeetingRecorder {
+    weak var controller: NotetakerController?
+    func start(session: Int, deviceId: String) {}
+    func stop(session: Int) { controller?.recorderStopped(session: session) }
+    func cut(session: Int, source: TranscriptSource) {}
+}
+
+@MainActor
+@Suite("Notetaker after a meeting")
+struct NotetakerAfterMeetingTests {
+    @Test func `keeps a summary the user generated while the title was being written`() async throws {
+        let completions = LockedCounter()
+        let engines = FakeEngines()
+        engines.update {
+            $0.transcription = EngineTranscription(
+                text: "We agreed to ship the beta on Friday once the onboarding bugs are fixed and QA signs off on the release candidate build."
+            )
+            $0.completeDelay = .milliseconds(300)
+            $0.completeHandler = { _, _ in completions.next() == 0 ? "Beta planning" : "Automatic summary" }
+        }
+        let harness = try await Harness(Settings(), engines: engines)
+        let recorder = InstantRecorder()
+        recorder.controller = harness.controller
+        harness.controller.recorder = recorder
+        harness.controller.handleChunk(harness.chunk(0, 6000))
+        await eventually { harness.meetings.get(harness.meetingId)?.transcriptWords ?? 0 >= minSummaryWords }
+
+        let stopping = Task { await harness.controller.stop() }
+        await eventually { engines.calls.contains { if case .complete = $0 { true } else { false } } }
+        harness.meetings.update(harness.meetingId) { $0.summary = "The user's summary" }
+        await stopping.value
+
+        let meeting = try #require(harness.meetings.get(harness.meetingId))
+        #expect(meeting.title == "Beta planning")
+        #expect(meeting.summary == "The user's summary")
+        withExtendedLifetime(recorder) {}
+    }
+}

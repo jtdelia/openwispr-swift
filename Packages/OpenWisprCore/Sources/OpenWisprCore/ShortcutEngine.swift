@@ -46,7 +46,7 @@ public final class ShortcutEngine {
     /// Called when dictation ends without a keyboard gesture (click, error, Esc, time limit).
     public func reset() {
         mode = .idle
-        suppressed = !held.isEmpty
+        suppressed = !pressed.isEmpty
     }
 
     /// The tap was re-enabled and may have missed key-ups.
@@ -59,8 +59,13 @@ public final class ShortcutEngine {
         down ? keyDown(keycode) : keyUp(keycode)
     }
 
+    /// Held keys other than Caps Lock. Its flag reports the lock state, not the key, so it stays "held"
+    /// for as long as the lock is on.
+    private var pressed: Set<Int> { held.subtracting([Key.capsLock]) }
+
     private func matches(_ combo: [Int]) -> Bool {
-        !combo.isEmpty && combo.count == held.count && combo.allSatisfy(held.contains)
+        let keys = combo.contains(Key.capsLock) ? held : pressed
+        return !combo.isEmpty && combo.count == keys.count && combo.allSatisfy(keys.contains)
     }
 
     private func keyDown(_ keycode: Int) -> [Gesture] {
@@ -82,7 +87,7 @@ public final class ShortcutEngine {
             if matches(shortcuts.ptt) || matches(shortcuts.handsFree) { return endWith(.handsFreeStop) }
             return []
         case .idle:
-            if keycode == Key.esc && held.count == 1 { return [.dismiss] }
+            if keycode == Key.esc && pressed.count == 1 { return [.dismiss] }
             if suppressed { return [] }
             if matches(shortcuts.ptt) {
                 mode = .ptt
@@ -102,10 +107,10 @@ public final class ShortcutEngine {
 
     private func keyUp(_ keycode: Int) -> [Gesture] {
         held.remove(keycode)
-        if held.isEmpty { suppressed = false }
+        if pressed.isEmpty { suppressed = false }
         if mode == .ptt && shortcuts.ptt.contains(keycode) {
             mode = .idle
-            suppressed = !held.isEmpty
+            suppressed = !pressed.isEmpty
             return [.pttEnd]
         }
         return []

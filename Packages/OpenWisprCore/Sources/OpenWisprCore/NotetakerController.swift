@@ -191,6 +191,7 @@ public final class NotetakerController {
         speakers?.stopPolling()
         segment = nil
         setState(.idle(error: "Couldn't start recording: \(message)"))
+        onStopped?()
     }
 
     public func recorderStopped(session: Int) {
@@ -313,8 +314,9 @@ public final class NotetakerController {
     }
 
     private func afterMeeting(_ meetingId: String) async {
+        if meetings.get(meetingId)?.title.trimmed.isEmpty == true { await generateTitle(meetingId) }
+        // The user can generate a summary while the title is being written.
         guard let meeting = meetings.get(meetingId) else { return }
-        if meeting.title.trimmed.isEmpty { await generateTitle(meetingId) }
         if meeting.summary == nil, meeting.transcriptWords >= minSummaryWords { await generateSummary(meetingId) }
     }
 
