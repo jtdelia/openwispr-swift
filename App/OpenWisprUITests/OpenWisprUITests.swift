@@ -137,7 +137,7 @@ final class OpenWisprUITests: XCTestCase {
         XCTAssertTrue(title.waitForExistence(timeout: 5))
         XCTAssertEqual(title.value as? String, "Beta launch planning")
 
-        app.buttons["meeting-back"].click()
+        app.descendants(matching: .any)["meeting-back"].firstMatch.click()
         XCTAssertTrue(app.staticTexts["Beta launch planning"].waitForExistence(timeout: 5))
     }
 }
