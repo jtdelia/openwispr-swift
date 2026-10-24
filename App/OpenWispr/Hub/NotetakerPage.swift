@@ -424,7 +424,7 @@ private struct TranscriptView: View {
                             Text(turn.text).textSelection(.enabled)
                         }
                     }
-                    .accessibilityElement(children: .combine)
+                    .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("transcript-turn")
                     .padding(.vertical, 5)
                 }

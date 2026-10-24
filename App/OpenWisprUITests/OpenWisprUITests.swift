@@ -25,6 +25,14 @@ final class OpenWisprUITests: XCTestCase {
         item.click()
     }
 
+    /// Settings is a lazy Form: rows below the fold join the accessibility tree only once scrolled into view.
+    private func reveal(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<15 where !element.exists {
+            window.scroll(byDeltaX: 0, deltaY: -200)
+        }
+        XCTAssertTrue(element.exists, file: file, line: line)
+    }
+
     func testHomeShowsStatsAndEmptyHistory() {
         XCTAssertTrue(app.staticTexts["Welcome back"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["words dictated"].exists)
@@ -72,7 +80,7 @@ final class OpenWisprUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Kubernetes"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["← cooper netties"].exists)
-        app.buttons["Delete"].firstMatch.click()
+        app.descendants(matching: .any)["dictionary-delete"].firstMatch.click()
         XCTAssertTrue(app.staticTexts["No words yet."].waitForExistence(timeout: 5))
     }
 
@@ -104,10 +112,10 @@ final class OpenWisprUITests: XCTestCase {
     func testSettingsShowsBuiltInModelsAndAppleStatus() {
         open("Settings")
         XCTAssertTrue(app.staticTexts["Transcribes as en-US. The first dictation in a new language downloads Apple’s language files."].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["Reads up to 4096 tokens per request on this Mac."].exists)
-        XCTAssertTrue(app.staticTexts["Built-in models"].exists)
-        XCTAssertTrue(app.staticTexts["Add from Hugging Face"].exists)
-        XCTAssertTrue(app.staticTexts["Push to talk (hold)"].exists)
+        reveal(app.staticTexts["Reads up to 4096 tokens per request on this Mac."])
+        reveal(app.staticTexts["Built-in models"])
+        reveal(app.staticTexts["Add from Hugging Face"])
+        reveal(app.staticTexts["Push to talk (hold)"])
     }
 
     func testMeetingIsTranscribedAttributedAndSummarized() {

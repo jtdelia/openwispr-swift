@@ -40,8 +40,9 @@ struct DictionaryPage: View {
                             }
                             .buttonStyle(.link)
                             .foregroundStyle(.red)
+                            .accessibilityIdentifier("dictionary-delete")
                         }
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("dictionary-entry")
                         if entry.id != entries.last?.id { Divider().padding(.vertical, 8) }
                     }
@@ -98,8 +99,9 @@ struct SnippetsPage: View {
                             }
                             .buttonStyle(.link)
                             .foregroundStyle(.red)
+                            .accessibilityIdentifier("snippet-delete")
                         }
-                        .accessibilityElement(children: .combine)
+                        .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("snippet-entry")
                         if snippet.id != snippets.last?.id { Divider().padding(.vertical, 8) }
                     }

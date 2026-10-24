@@ -211,7 +211,7 @@ private struct ChatSection: View {
             if settings.chat.isApple {
                 AppleChatStatus()
             } else if settings.chat.builtInModelId != nil, let chat = model.builtInStatus?.chat {
-                Text("Reads up to \(chat.contextSize) tokens per request.").font(.callout).foregroundStyle(.secondary)
+                Text("Reads up to \(String(chat.contextSize)) tokens per request.").font(.callout).foregroundStyle(.secondary)
             }
         } header: {
             Text("Chat")
@@ -377,7 +377,7 @@ private struct AppleChatStatus: View {
                 ErrorText("Couldn’t check Apple’s chat model: \(error)")
             } else if let chat = model.builtInStatus?.appleChat {
                 if chat.available {
-                    Text("Reads up to \(chat.contextSize ?? 0) tokens per request on this Mac.").font(.callout).foregroundStyle(.secondary)
+                    Text("Reads up to \(String(chat.contextSize ?? 0)) tokens per request on this Mac.").font(.callout).foregroundStyle(.secondary)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         ErrorText("\(chat.reason ?? "Apple Intelligence is unavailable"), so dictations are inserted without Cleanup and meetings get no title or summary. \(fixText(chat.fix))You can also use a chat model downloaded to this Mac.")
