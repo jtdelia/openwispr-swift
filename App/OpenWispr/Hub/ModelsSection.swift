@@ -126,7 +126,10 @@ private struct AddFromHub: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Add from Hugging Face").font(.headline)
-            Text("Paste a repo id or URL. OpenWispr checks that it can run the model before downloading anything: MLX chat and vision models, and WhisperKit or Parakeet speech-to-text models.")
+            Text(
+                "Paste a repo id or URL. OpenWispr checks that it can run the model before downloading anything: MLX chat and vision models, "
+                    + "and WhisperKit, Parakeet or OpenAI Whisper (like openai/whisper-small.en) speech-to-text models."
+            )
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
                 TextField("", text: $input, prompt: Text(verbatim: "mlx-community/Qwen3-4B-Instruct-2507-4bit"))

@@ -142,6 +142,7 @@ public final class LocalEngines: BuiltInEngines {
     private let appleSpeech: AppleSpeech
     private let appleChat = AppleChat()
     private let whisper = EnginesByFolder<WhisperKitEngine>()
+    private let mlxWhisper = EnginesByFolder<MLXWhisperEngine>()
     private let parakeet = Parakeet()
     private let mlxChat = EnginesByFolder<MLXChatEngine>()
     private let idle: IdleUnloader
@@ -153,8 +154,8 @@ public final class LocalEngines: BuiltInEngines {
         appleSpeech = AppleSpeech(requestsAuthorization: requestsSpeechAuthorization) { locale, fraction in
             await reporter.report(locale: locale, fraction: fraction)
         }
-        idle = IdleUnloader { [appleSpeech, whisper, mlxChat, parakeet] in
-            await Self.unloadAll(appleSpeech: appleSpeech, whisper: whisper, mlxChat: mlxChat, parakeet: parakeet)
+        idle = IdleUnloader { [appleSpeech, whisper, mlxWhisper, mlxChat, parakeet] in
+            await Self.unloadAll(appleSpeech: appleSpeech, whisper: whisper, mlxWhisper: mlxWhisper, mlxChat: mlxChat, parakeet: parakeet)
         }
     }
 
@@ -195,6 +196,7 @@ public final class LocalEngines: BuiltInEngines {
             // By folder, not manifest: a model being replaced or removed may no longer count as installed.
             guard let folder = try? DownloadedModel.folder(id, in: modelsDirectory) else { continue }
             await whisper.evict(folder)?.unload()
+            await mlxWhisper.evict(folder)?.unload()
             await mlxChat.evict(folder)?.unload()
             await parakeet.unload(folder)
         }
@@ -210,14 +212,16 @@ public final class LocalEngines: BuiltInEngines {
     }
 
     public func stop() async {
-        await Self.unloadAll(appleSpeech: appleSpeech, whisper: whisper, mlxChat: mlxChat, parakeet: parakeet)
+        await Self.unloadAll(appleSpeech: appleSpeech, whisper: whisper, mlxWhisper: mlxWhisper, mlxChat: mlxChat, parakeet: parakeet)
     }
 
     private static func unloadAll(
-        appleSpeech: AppleSpeech, whisper: EnginesByFolder<WhisperKitEngine>, mlxChat: EnginesByFolder<MLXChatEngine>, parakeet: Parakeet
+        appleSpeech: AppleSpeech, whisper: EnginesByFolder<WhisperKitEngine>, mlxWhisper: EnginesByFolder<MLXWhisperEngine>,
+        mlxChat: EnginesByFolder<MLXChatEngine>, parakeet: Parakeet
     ) async {
         await appleSpeech.unload()
         for engine in whisper.evictAll() { await engine.unload() }
+        for engine in mlxWhisper.evictAll() { await engine.unload() }
         for engine in mlxChat.evictAll() { await engine.unload() }
         await parakeet.unloadAll()
     }
@@ -252,6 +256,7 @@ public final class LocalEngines: BuiltInEngines {
         switch model.entry.engine {
         case .fluidAudio: return ParakeetEngine(model: model, parakeet: parakeet)
         case .whisperKit: return whisper.engine(for: model, create: WhisperKitEngine.init)
+        case .mlxWhisper: return mlxWhisper.engine(for: model, create: MLXWhisperEngine.init)
         case .mlx: throw ModelError.unavailable("\(model.name) can't be used for speech-to-text")
         }
     }
@@ -262,7 +267,7 @@ public final class LocalEngines: BuiltInEngines {
         guard downloaded.entry.task == .chat else { throw ModelError.unavailable("\(downloaded.name) isn't a chat model") }
         switch downloaded.entry.engine {
         case .mlx: return mlxChat.engine(for: downloaded, create: MLXChatEngine.init)
-        case .whisperKit, .fluidAudio: throw ModelError.unavailable("\(downloaded.name) can't be used for chat")
+        case .whisperKit, .fluidAudio, .mlxWhisper: throw ModelError.unavailable("\(downloaded.name) can't be used for chat")
         }
     }
 
