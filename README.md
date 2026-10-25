@@ -79,7 +79,9 @@ project.yml             XcodeGen project definition
 | `make run`     | Build, optionally sign, and open the app             |
 | `make check`   | Lint, test and build                                 |
 
-CI runs the same commands on a macOS 27 runner for every pull request.
+CI runs `make lint`, `make test`, and `make build` on a macOS 27 runner for every pull request. The CI
+build is signed ad hoc and only checks that the app compiles; build and sign the app you run locally
+with `make run`. `make ui-test` runs in CI only on manual dispatch: `gh workflow run ci.yml --ref <branch>`.
 
 ## Contributing
 

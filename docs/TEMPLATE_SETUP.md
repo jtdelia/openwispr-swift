@@ -50,7 +50,7 @@ gh secret set KIRO_API_KEY
 
 | Workflow | Runs when | What it does |
 | --- | --- | --- |
-| `ci.yml` | Every pull request, and pushes to `main` | `make lint`, `make test`, `make build`, plus workflow linting, secret scanning, spelling, and EditorConfig checks. `ci-success` passes only if all of them do. |
+| `ci.yml` | Every pull request, and pushes to `main` | `make lint`, `make test`, `make build`, plus workflow linting, secret scanning, spelling, and EditorConfig checks. `make ui-test` runs only on manual dispatch. `ci-success` passes only if none of them fail. |
 | `pr-title.yml` | A pull request opens or its title changes | Checks the title is a conventional commit. |
 | `opencode-review.yml` | A pull request opens ready for review, or a draft is marked ready | Reviews the change with a free OpenCode model, falling back to Kiro CLI. |
 | `opencode.yml` | A maintainer comments `/oc <request>` | Answers the question or makes the change. |
