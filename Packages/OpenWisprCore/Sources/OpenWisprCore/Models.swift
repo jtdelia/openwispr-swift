@@ -127,7 +127,8 @@ public final class Models {
 
     public init(
         settings: @escaping () -> Settings, engines: any BuiltInEngines, http: any HTTPClient, modelsDirectory: URL,
-        physicalMemoryBytes: Int64 = Int64(ProcessInfo.processInfo.physicalMemory), retryDelay: Duration = .seconds(2)
+        hubCache: HubCache? = nil, physicalMemoryBytes: Int64 = Int64(ProcessInfo.processInfo.physicalMemory),
+        retryDelay: Duration = .seconds(2)
     ) {
         self.settings = settings
         self.engines = engines
@@ -135,7 +136,7 @@ public final class Models {
         endpoints = EndpointClient(http: http)
         self.physicalMemoryBytes = physicalMemoryBytes
         downloads = ModelDownloads(
-            directory: modelsDirectory, http: http, retryDelay: retryDelay,
+            directory: modelsDirectory, http: http, hubCache: hubCache, retryDelay: retryDelay,
             onChange: { [weak self] in Task { @MainActor in self?.libraryChanged() } },
             release: { [weak self] id in await self?.release(id) }
         )

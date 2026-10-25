@@ -83,7 +83,10 @@ final class AppModel {
         let engines: any BuiltInEngines = uiTesting
             ? UITestEngines()
             : LocalEngines(modelsDirectory: modelsDirectory) { progress in await relay.report(progress) }
-        let models = Models(settings: { store.settings }, engines: engines, http: URLSessionHTTPClient(), modelsDirectory: modelsDirectory)
+        let models = Models(
+            settings: { store.settings }, engines: engines, http: URLSessionHTTPClient(), modelsDirectory: modelsDirectory,
+            hubCache: uiTesting ? nil : .standard()
+        )
         relay.models = models
         let meetings = MeetingStore(directory: directory)
         let shortcuts = ShortcutEngine(shortcuts: store.settings.shortcuts)

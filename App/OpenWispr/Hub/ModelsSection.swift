@@ -22,7 +22,7 @@ struct ModelsSection: View {
         } header: {
             Text("Built-in models")
         } footer: {
-            Text("Recommended models, and any you add, run on this Mac and are downloaded from Hugging Face. Downloaded models use \(Format.bytes(library.diskUsageBytes)) on disk.\(notice.map { " \($0)" } ?? "")")
+            Text("Recommended models, and any you add, run on this Mac and are downloaded from Hugging Face, reusing any files already in your Hugging Face cache. Downloaded models use \(Format.bytes(library.diskUsageBytes)) on disk.\(notice.map { " \($0)" } ?? "")")
         }
     }
 
