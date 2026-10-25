@@ -108,6 +108,8 @@ public final class Models {
     public private(set) var library = ModelLibraryState(models: [], diskUsageBytes: 0, physicalMemoryBytes: 0)
     /// The latest Apple asset download or slow first load, while one runs.
     public private(set) var progress: ModelProgress?
+    /// Models in the Hugging Face cache OpenWispr can run, as of the last `refreshCachedModels`.
+    private var cached: [CachedModel] = []
 
     @ObservationIgnored public var onProgress: ((ModelProgress) -> Void)?
     @ObservationIgnored private let settings: () -> Settings
@@ -115,6 +117,7 @@ public final class Models {
     @ObservationIgnored private let endpoints: EndpointClient
     @ObservationIgnored private let http: any HTTPClient
     @ObservationIgnored private let physicalMemoryBytes: Int64
+    @ObservationIgnored private let hubCache: HubCache?
     @ObservationIgnored private var downloads: ModelDownloads!
     @ObservationIgnored private var installed: [String: ModelManifest] = [:]
     @ObservationIgnored private var loads: [String: Task<Void, any Error>] = [:]
@@ -135,6 +138,7 @@ public final class Models {
         self.http = http
         endpoints = EndpointClient(http: http)
         self.physicalMemoryBytes = physicalMemoryBytes
+        self.hubCache = hubCache
         downloads = ModelDownloads(
             directory: modelsDirectory, http: http, hubCache: hubCache, retryDelay: retryDelay,
             onChange: { [weak self] in Task { @MainActor in self?.libraryChanged() } },
@@ -142,10 +146,25 @@ public final class Models {
         )
     }
 
-    /// Reads the installed models, which `availability` relies on, and the library.
+    /// Reads the installed models, which `availability` relies on, the library, and the Hugging Face cache.
     public func refresh() async {
         await refreshInstalled()
         await refreshLibrary()
+        await refreshCachedModels()
+    }
+
+    /// Runnable models in the Hugging Face cache that aren't in the library yet, ready to add without a download.
+    public var cachedModels: [CachedModel] {
+        cached.filter { found in !library.models.contains { $0.model.id == found.id } }
+    }
+
+    /// Looks through the Hugging Face cache again, reading only its small config files.
+    public func refreshCachedModels() async {
+        guard let hubCache else { return }
+        let memory = physicalMemoryBytes
+        cached = await discoverCachedModels(hubCache).map {
+            CachedModel(model: $0.model, summary: $0.summary, oversized: Double($0.model.memoryBytes) > Double(memory) * memoryShare)
+        }
     }
 
     public func refreshLibrary() async {
