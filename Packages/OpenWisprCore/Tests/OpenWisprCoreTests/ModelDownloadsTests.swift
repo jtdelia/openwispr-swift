@@ -229,6 +229,88 @@ struct UsingDownloadedModelTests {
 }
 
 @MainActor
+@Suite("Reusing the Hugging Face cache")
+struct HubCacheDownloadTests {
+    let directory: URL
+    let cache: HubCache
+    init() throws {
+        directory = try temporaryDirectory()
+        cache = HubCache(directory: try temporaryDirectory())
+    }
+
+    func cacheBlob(_ repo: String, _ name: String, _ content: Data) throws {
+        let blobs = cache.directory.appending(path: "models--\(repo.replacingOccurrences(of: "/", with: "--"))/blobs")
+        try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
+        try content.write(to: blobs.appending(path: name))
+    }
+
+    @Test func `copies files already in the Hugging Face cache instead of downloading them`() async throws {
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), weights)
+        let config = Data(#"{"model_type":"qwen3"}"#.utf8)
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", gitBlobSha1(config), config)
+        let hub = FakeHub([qwen: qwenRepo])
+        let models = await makeModels(hub, directory: directory, hubCache: cache)
+
+        try await models.download(qwenId)
+
+        #expect(!hub.requests.contains { $0.url.contains("/resolve/") })
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/config.json")) == config)
+        #expect(try await status(models, qwenId).state == .installed(sizeBytes: 22 + 5000))
+    }
+
+    @Test func `finds a cached file under another repo, since the cache names files by their hash`() async throws {
+        try cacheBlob("someone/qwen3-fork", sha256Hex(weights), weights)
+        let hub = FakeHub([qwen: qwenRepo])
+
+        try await makeModels(hub, directory: directory, hubCache: cache).download(qwenId)
+
+        #expect(weightRequests(hub).isEmpty)
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
+    }
+
+    @Test func `downloads a file whose cached copy doesn't match its hash, leaving the cache alone`() async throws {
+        let corrupt = Data(repeating: 1, count: weights.count)
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), corrupt)
+        let hub = FakeHub([qwen: qwenRepo])
+
+        try await makeModels(hub, directory: directory, hubCache: cache).download(qwenId)
+
+        #expect(weightRequests(hub) == [nil])
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
+        let blob = cache.directory.appending(path: "models--mlx-community--Qwen3-4B-Instruct-2507-4bit/blobs/\(sha256Hex(weights))")
+        #expect(try Data(contentsOf: blob) == corrupt)
+    }
+
+    @Test func `replaces a partial download with the cached copy`() async throws {
+        let dropped = LockedFlag()
+        let offline = FakeHub([qwen: qwenRepo]) { path, _ in
+            guard isWeights(path) else { return nil }
+            if dropped.set() { throw Dropped(message: "fetch failed") }
+            return droppedAfter(2000)
+        }
+        let first = await makeModels(offline, directory: directory)
+        await #expect(throws: Dropped.self) { try await first.download(qwenId) }
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), weights)
+        let online = FakeHub([qwen: qwenRepo])
+
+        let models = await makeModels(online, directory: directory, hubCache: cache)
+        try await models.download(qwenId)
+
+        #expect(weightRequests(online).isEmpty)
+        #expect(!exists(directory.appending(path: "\(qwenId)/model.safetensors.part")))
+        #expect(try await status(models, qwenId).state == .installed(sizeBytes: 22 + 5000))
+    }
+
+    @Test func `finds the cache where huggingface_hub does`() {
+        let home = URL(filePath: "/Users/jane", directoryHint: .isDirectory)
+        #expect(HubCache.standard(environment: [:], home: home).directory.path == "/Users/jane/.cache/huggingface/hub")
+        #expect(HubCache.standard(environment: ["HF_HOME": "/Volumes/models/hf"], home: home).directory.path == "/Volumes/models/hf/hub")
+        #expect(HubCache.standard(environment: ["HF_HOME": "/x", "HF_HUB_CACHE": "/Volumes/hub"], home: home).directory.path == "/Volumes/hub")
+    }
+}
+
+@MainActor
 @Suite("Recommended models")
 struct RecommendedModelTests {
     @Test func `lists speech-to-text, chat and vision models, flagging those needing over 60% of memory`() async throws {

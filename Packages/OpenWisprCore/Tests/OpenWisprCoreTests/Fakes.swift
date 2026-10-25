@@ -290,11 +290,11 @@ final class SettingsBox {
 @MainActor
 func makeModels(
     _ http: any HTTPClient = FakeHub(), engines: FakeEngines = FakeEngines(), settings: SettingsBox = SettingsBox(),
-    directory: URL, physicalMemoryBytes: Int64 = 32_000_000_000
+    directory: URL, hubCache: HubCache? = nil, physicalMemoryBytes: Int64 = 32_000_000_000
 ) async -> Models {
     let models = Models(
         settings: { settings.settings }, engines: engines, http: http, modelsDirectory: directory,
-        physicalMemoryBytes: physicalMemoryBytes, retryDelay: .zero
+        hubCache: hubCache, physicalMemoryBytes: physicalMemoryBytes, retryDelay: .zero
     )
     await models.refresh()
     return models

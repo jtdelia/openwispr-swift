@@ -87,6 +87,8 @@ public actor ModelDownloads {
     public nonisolated let directory: URL
     private let http: any HTTPClient
     private let hub: HuggingFace
+    /// Files already there are copied instead of downloaded.
+    private let hubCache: HubCache?
     /// Delay before the first retry of a dropped or stalled transfer; doubles on each further attempt.
     private let retryDelay: Duration
     /// A stalled body stream otherwise hangs forever without an error.
@@ -98,12 +100,13 @@ public actor ModelDownloads {
     private var errors: [String: String] = [:]
 
     public init(
-        directory: URL, http: any HTTPClient, retryDelay: Duration = .seconds(1), stallTimeout: Duration = .seconds(30),
-        onChange: @escaping @Sendable () -> Void, release: @escaping @Sendable (String) async -> Void
+        directory: URL, http: any HTTPClient, hubCache: HubCache? = nil, retryDelay: Duration = .seconds(1),
+        stallTimeout: Duration = .seconds(30), onChange: @escaping @Sendable () -> Void, release: @escaping @Sendable (String) async -> Void
     ) {
         self.directory = directory
         self.http = http
         hub = HuggingFace(http: http)
+        self.hubCache = hubCache
         self.retryDelay = retryDelay
         self.stallTimeout = stallTimeout
         self.onChange = onChange
@@ -249,6 +252,11 @@ public actor ModelDownloads {
         // Files are only renamed into place after verification.
         if sizeOf(target) == file.size { return }
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if copyFromCache(file, part: part, job: job) {
+            try? FileManager.default.removeItem(at: target)
+            try FileManager.default.moveItem(at: part, to: target)
+            return
+        }
         var attempt = 1
         while true {
             let before = sizeOf(part) ?? 0
@@ -271,6 +279,21 @@ public actor ModelDownloads {
         }
         try? FileManager.default.removeItem(at: target)
         try FileManager.default.moveItem(at: part, to: target)
+    }
+
+    /// Copies `file` from the Hugging Face cache into `part`, replacing a partial download, when a verified
+    /// copy is there. On APFS the copy is a clone, so it takes no extra space.
+    private func copyFromCache(_ file: HubFile, part: URL, job: Job) -> Bool {
+        guard !job.cancelled, let blob = hubCache?.blob(for: file), matches(blob, file) else { return false }
+        let before = sizeOf(part) ?? 0
+        try? FileManager.default.removeItem(at: part)
+        guard (try? FileManager.default.copyItem(at: blob, to: part)) != nil, sizeOf(part) == file.size else {
+            try? FileManager.default.removeItem(at: part)
+            job.bytesDone -= before
+            return false
+        }
+        progress(job, file.size - before)
+        return true
     }
 
     /// Appends the rest of `file` to `part`, which already holds `have` bytes, failing when no data arrives for `stallTimeout`.
