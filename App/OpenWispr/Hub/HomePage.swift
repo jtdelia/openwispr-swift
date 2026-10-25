@@ -24,7 +24,7 @@ struct HomePage: View {
                         ForEach(setupItems, id: \.self) { Label($0, systemImage: "circle").font(.callout) }
                     }
                     .padding(.vertical, 10)
-                    Button("Open Settings") { model.page = .settings }
+                    Button("Open Settings") { model.showSettings(missingPermission ? .permissions : .speechToText) }
                         .buttonStyle(.glassProminent)
                 }
                 .accessibilityIdentifier("setup-card")
@@ -63,6 +63,10 @@ struct HomePage: View {
     private func welcome(_ name: String) -> String {
         let first = name.split(separator: " ").first.map(String.init) ?? ""
         return first.isEmpty ? "Welcome back" : "Welcome back, \(first)"
+    }
+
+    private var missingPermission: Bool {
+        !model.permissions.accessibility || !model.permissions.microphone
     }
 
     private var setupItems: [String] {

@@ -4,7 +4,7 @@ import OpenWisprEngines
 import ServiceManagement
 
 enum Page: String, CaseIterable, Identifiable {
-    case home, notetaker, dictionary, snippets, style, settings
+    case home, notetaker, dictionary, snippets, style
 
     var id: String { rawValue }
 
@@ -15,7 +15,6 @@ enum Page: String, CaseIterable, Identifiable {
         case .dictionary: "Dictionary"
         case .snippets: "Snippets"
         case .style: "Style"
-        case .settings: "Settings"
         }
     }
 
@@ -26,7 +25,57 @@ enum Page: String, CaseIterable, Identifiable {
         case .dictionary: "character.book.closed"
         case .snippets: "text.badge.plus"
         case .style: "textformat"
-        case .settings: "gearshape"
+        }
+    }
+}
+
+/// A page of the Settings window, listed in its sidebar under a `SettingsGroup`.
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case general, shortcuts, speechToText, languageModels, modelLibrary, permissions
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .shortcuts: "Shortcuts"
+        case .speechToText: "Speech-to-Text"
+        case .languageModels: "Language Models"
+        case .modelLibrary: "Model Library"
+        case .permissions: "Permissions"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "slider.horizontal.3"
+        case .shortcuts: "keyboard"
+        case .speechToText: "mic"
+        case .languageModels: "brain"
+        case .modelLibrary: "shippingbox"
+        case .permissions: "lock.shield"
+        }
+    }
+}
+
+enum SettingsGroup: String, CaseIterable, Identifiable {
+    case app, models, system
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .app: "App"
+        case .models: "AI Models"
+        case .system: "System"
+        }
+    }
+
+    var panes: [SettingsPane] {
+        switch self {
+        case .app: [.general, .shortcuts]
+        case .models: [.speechToText, .languageModels, .modelLibrary]
+        case .system: [.permissions]
         }
     }
 }
@@ -51,6 +100,7 @@ final class AppModel {
     static let bundleId = "io.github.jtdelia.openwispr-swift"
 
     var page: Page = .home
+    var settingsPane: SettingsPane = .general
     var openMeetingId: String?
     var meetingStartError: String?
     private(set) var permissions = PermissionStatus()
@@ -66,6 +116,7 @@ final class AppModel {
     let notetaker: NotetakerController
     @ObservationIgnored let level: () -> Float
     @ObservationIgnored var openHub: () -> Void = {}
+    @ObservationIgnored var openSettings: () -> Void = {}
 
     @ObservationIgnored private let shortcuts: ShortcutEngine
     @ObservationIgnored private let system: AppDictationSystem
@@ -122,7 +173,7 @@ final class AppModel {
         self.notetaker = notetaker
         self.shortcuts = shortcuts
         self.system = system
-        system.showSettingsAction = { [weak self] in self?.show(.settings) }
+        system.showSettingsAction = { [weak self] in self?.showSettings(.speechToText) }
     }
 
     func launch() {
@@ -159,6 +210,13 @@ final class AppModel {
     func show(_ page: Page) {
         self.page = page
         openHub()
+        NSApp.activate()
+    }
+
+    /// Opens the Settings window, on `pane` if given or else where the user left it.
+    func showSettings(_ pane: SettingsPane? = nil) {
+        if let pane { settingsPane = pane }
+        openSettings()
         NSApp.activate()
     }
 

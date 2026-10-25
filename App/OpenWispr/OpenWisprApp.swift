@@ -16,6 +16,12 @@ struct OpenWisprApp: App {
         .defaultSize(width: 1000, height: 720)
         .windowToolbarStyle(.unified)
 
+        Settings {
+            SettingsView()
+                .environment(delegate.model)
+        }
+        .windowResizability(.contentMinSize)
+
         MenuBarExtra {
             MenuBarMenu()
                 .environment(delegate.model)
@@ -67,9 +73,15 @@ private struct MenuBarLabel: View {
 
 private struct MenuBarMenu: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Button("Open OpenWispr") { model.show(model.page) }
+        Button("Settings…") {
+            openSettings()
+            NSApp.activate()
+        }
+        .keyboardShortcut(",")
         Button("Start hands-free dictation") { model.dictation.start(.handsFree) }
         if model.notetaker.state.isRecording {
             Button("Stop taking meeting notes") { Task { await model.notetaker.stop() } }

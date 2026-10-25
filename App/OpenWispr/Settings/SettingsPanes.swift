@@ -35,13 +35,95 @@ private enum ModelChoice: Hashable {
 /// The Apple Intelligence & Siri pane; there's no deep link to the switch itself.
 private let appleIntelligenceSettings = URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!
 
-struct SettingsPage: View {
+// MARK: Panes
+
+struct GeneralPane: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let settings = model.store.settings
         Form {
-            Section("Permissions") {
+            Section("You") {
+                LabeledContent {
+                    CommitTextField(value: settings.userName, placeholder: "Jane Doe") { name in model.updateSettings { $0.userName = name } }
+                        .frame(width: 220)
+                } label: {
+                    Text("Your name")
+                    Text("Helps with spelling and sign-offs.")
+                }
+            }
+
+            Section("Appearance") {
+                Picker("Appearance", selection: Binding(get: { settings.appearance }, set: { value in model.updateSettings { $0.appearance = value } })) {
+                    ForEach(Appearance.allCases, id: \.self) { appearance in
+                        Text(appearance.label).tag(appearance)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("picker-appearance")
+                if model.isUITesting { AppliedColorScheme(id: "applied-color-scheme") }
+                Toggle(isOn: binding(\.showFlowBar)) {
+                    Text("Show Flow bar while idle")
+                    Text("The small pill at the bottom of the screen. It always appears while dictating.")
+                }
+                .accessibilityIdentifier("toggle-flow-bar")
+            }
+
+            Section("Audio") {
+                MicrophonePicker(value: settings.microphoneId)
+                Toggle("Sound effects", isOn: binding(\.sounds))
+            }
+
+            Section("Behavior") {
+                Toggle("Restore clipboard after pasting", isOn: binding(\.restoreClipboard))
+                Toggle("Launch at login", isOn: binding(\.launchAtLogin))
+            }
+        }
+    }
+
+    private func binding(_ keyPath: WritableKeyPath<OpenWisprCore.Settings, Bool>) -> Binding<Bool> {
+        Binding(get: { model.store.settings[keyPath: keyPath] }, set: { value in model.updateSettings { $0[keyPath: keyPath] = value } })
+    }
+}
+
+struct ShortcutsPane: View {
+    var body: some View {
+        Form {
+            Section {
+                ForEach(ShortcutAction.allCases, id: \.self) { action in
+                    ShortcutRow(action: action)
+                }
+            } footer: {
+                Text("Tip: if fn opens the emoji picker, set System Settings → Keyboard → “Press 🌐 key to” → “Do Nothing”.")
+            }
+        }
+    }
+}
+
+struct SpeechToTextPane: View {
+    var body: some View {
+        Form { SpeechToTextSection() }
+    }
+}
+
+struct LanguageModelsPane: View {
+    var body: some View {
+        Form { ChatSection() }
+    }
+}
+
+struct ModelLibraryPane: View {
+    var body: some View {
+        Form { ModelsSection() }
+    }
+}
+
+struct PermissionsPane: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Form {
+            Section {
                 LabeledContent {
                     if model.permissions.accessibility {
                         Badge(text: "Granted", tone: .ok)
@@ -66,57 +148,7 @@ struct SettingsPage: View {
                     ErrorText("OpenWispr can't listen for shortcuts yet. Quit and reopen it after granting Accessibility.")
                 }
             }
-
-            SpeechToTextSection()
-            ChatSection()
-            ModelsSection()
-
-            Section {
-                ForEach(ShortcutAction.allCases, id: \.self) { action in
-                    ShortcutRow(action: action)
-                }
-            } header: {
-                Text("Shortcuts")
-            } footer: {
-                Text("Tip: if fn opens the emoji picker, set System Settings → Keyboard → “Press 🌐 key to” → “Do Nothing”.")
-            }
-
-            Section("Microphone") {
-                MicrophonePicker(value: settings.microphoneId)
-            }
-
-            Section("General") {
-                LabeledContent {
-                    CommitTextField(value: settings.userName, placeholder: "Jane Doe") { name in model.updateSettings { $0.userName = name } }
-                        .frame(width: 220)
-                } label: {
-                    Text("Your name")
-                    Text("Helps with spelling and sign-offs.")
-                }
-                Picker("Appearance", selection: Binding(get: { settings.appearance }, set: { value in model.updateSettings { $0.appearance = value } })) {
-                    ForEach(Appearance.allCases, id: \.self) { appearance in
-                        Text(appearance.label).tag(appearance)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("picker-appearance")
-                if model.isUITesting { AppliedColorScheme(id: "applied-color-scheme") }
-                Toggle("Sound effects", isOn: binding(\.sounds))
-                Toggle(isOn: binding(\.showFlowBar)) {
-                    Text("Show Flow bar while idle")
-                    Text("The small pill at the bottom of the screen. It always appears while dictating.")
-                }
-                .accessibilityIdentifier("toggle-flow-bar")
-                Toggle("Restore clipboard after pasting", isOn: binding(\.restoreClipboard))
-                Toggle("Launch at login", isOn: binding(\.launchAtLogin))
-            }
         }
-        .formStyle(.grouped)
-        .navigationTitle("Settings")
-    }
-
-    private func binding(_ keyPath: WritableKeyPath<OpenWisprCore.Settings, Bool>) -> Binding<Bool> {
-        Binding(get: { model.store.settings[keyPath: keyPath] }, set: { value in model.updateSettings { $0[keyPath: keyPath] = value } })
     }
 }
 
@@ -192,7 +224,7 @@ private struct SpeechToTextSection: View {
                 DownloadedSpeechStatus()
             }
         } header: {
-            Text("Speech-to-text")
+            Text("Model")
         } footer: {
             Text("Apple’s on-device model, a downloaded Built-in model, or any OpenAI-compatible speech-to-text Endpoint.")
         }
@@ -204,12 +236,14 @@ private struct ChatSection: View {
 
     var body: some View {
         let settings = model.store.settings
-        Section {
+        Section("Dictation") {
             Toggle(isOn: Binding(get: { settings.cleanup.enabled }, set: { value in model.updateSettings { $0.cleanup.enabled = value } })) {
                 Text("Clean up dictations")
                 Text("Removes filler words, applies self-corrections, fixes punctuation and matches your style.")
             }
             .accessibilityIdentifier("toggle-cleanup")
+        }
+        Section {
             ModelPicker(role: .chat)
             SelectionSettings(
                 role: .chat,
@@ -222,7 +256,7 @@ private struct ChatSection: View {
                 Text("Reads up to \(String(chat.contextSize)) tokens per request.").font(.callout).foregroundStyle(.secondary)
             }
         } header: {
-            Text("Chat")
+            Text("Model")
         } footer: {
             Text("Cleans up dictations and writes meeting titles and summaries.")
         }

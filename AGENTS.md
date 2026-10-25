@@ -10,7 +10,7 @@ meeting pipeline, stores, `Models`) lives in `Packages/OpenWisprCore` and is uni
 Testing. On-device engines (Apple Speech, Foundation Models, MLX, WhisperKit, Parakeet) live in
 `Packages/OpenWisprEngines`. The SwiftUI app in `App/OpenWispr` wires them to macOS: `AppModel.swift`
 is the composition root, `System/` holds Accessibility, the event tap and paste, `Audio/` holds capture,
-and `Hub/` and `FlowBar/` hold the UI. `OpenWispr.xcodeproj` is generated from `project.yml` by
+and `Hub/`, `Settings/` and `FlowBar/` hold the UI. `OpenWispr.xcodeproj` is generated from `project.yml` by
 XcodeGen and is not committed. Launching with `--ui-testing` swaps in fake engines and recorders
 (`Testing/UITesting.swift`) for the XCUITest suite.
 
