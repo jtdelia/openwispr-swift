@@ -182,14 +182,13 @@ actor MLXWhisperEngine: SpeechToTextEngine {
             var logProbabilities: Float = 0
             while sampled.count < MLXWhisperEngine.maxSampledTokens && cache.offset < config.maxTargetPositions {
                 let (token, logProbability) = nextWhisperToken(logits, sampled: sampled, vocabulary: vocabulary)
+                logProbabilities += logProbability
                 if token == vocabulary.endOfText { break }
                 sampled.append(token)
-                logProbabilities += logProbability
                 logits = whisper.decoder(MLXArray([Int32(token)])[.newAxis], cache: &cache)[0, -1].asType(.float32).asArray(Float.self)
             }
-            return DecodedWindow(
-                tokens: sampled, noSpeechProbability: noSpeech, averageLogProbability: logProbabilities / Float(max(1, sampled.count))
-            )
+            // Like OpenAI's, the average counts the end token too.
+            return DecodedWindow(tokens: sampled, noSpeechProbability: noSpeech, averageLogProbability: logProbabilities / Float(sampled.count + 1))
         }
 
         /// Whisper's log-mel spectrogram of up to 30 s, zero-padded to 30 s as Transformers' feature

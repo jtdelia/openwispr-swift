@@ -303,7 +303,7 @@ private func openAiWhisperRepo(dtype: String = "float32", generation: String = e
         (".gitattributes", text("*.safetensors filter=lfs")),
         ("README.md", text("# Whisper")),
         ("added_tokens.json", text("{}")),
-        ("config.json", text(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"torch_dtype":"\#(dtype)"}"#)),
+        ("config.json", text(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"num_mel_bins":80,"torch_dtype":"\#(dtype)"}"#)),
         ("flax_model.msgpack", FakeFile(content: weights, lfs: true)),
         ("generation_config.json", text(generation)),
         ("model.safetensors", FakeFile(content: weights, lfs: true)),
@@ -335,7 +335,7 @@ struct TransformersWhisperRepoTests {
             repo: "openai/whisper-small.en", revision: sha,
             files: ["config.json", "generation_config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"]
         )])
-        let configBytes = Int64(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"torch_dtype":"float32"}"#.utf8.count)
+        let configBytes = Int64(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"num_mel_bins":80,"torch_dtype":"float32"}"#.utf8.count)
         #expect(model.sizeBytes == configBytes + Int64(englishGeneration.utf8.count) + 5000 + 12 + 2)
         #expect(model.memoryBytes == Int64((2500 * 1.7).rounded()))
         #expect(model.languages == "English" && model.languageCodes == ["en"])
@@ -366,6 +366,19 @@ struct TransformersWhisperRepoTests {
                 reason: .missingFiles, message: "openai/whisper-small.en is missing \(missing), which Whisper on MLX needs"
             ))
         }
+    }
+
+    @Test(arguments: [
+        #"{"model_type":"whisper","n_mels":80,"n_audio_state":768,"quantization":{"group_size":64,"bits":4}}"#,
+        #"{"model_type":"whisper","d_model":768,"num_mel_bins":80,"quantization_config":{"bits":4,"quant_method":"awq"}}"#,
+    ])
+    func `rejects a Whisper converted for another runtime, which the engine can’t load`(config: String) async {
+        let repo = openAiWhisperRepo().map { $0.path == "config.json" ? ($0.path, text(config)) : $0 }
+        let hub = FakeHub(["mlx-community/whisper-small.en-asr-4bit@\(sha)": repo])
+        #expect(await makeModels(hub, directory: directory).checkRepo("mlx-community/whisper-small.en-asr-4bit") == .rejected(
+            reason: .unsupportedArchitecture,
+            message: "mlx-community/whisper-small.en-asr-4bit is a Whisper converted for another runtime. OpenWispr runs OpenAI's own checkpoints, like openai/whisper-small.en"
+        ))
     }
 
     @Test func `rejects a generation config without Whisper’s special tokens`() async {

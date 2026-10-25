@@ -188,10 +188,14 @@ private struct WhisperConfig: Decodable {
     var nameOrPath: String?
     var vocabSize: Int?
     var dModel: Int?
+    var numMelBins: Int?
     var torchDtype: String?
+    var quantization: MlxConfig.Quantization?
+    var quantizationConfig: MlxConfig.Quantization?
 
     enum CodingKeys: String, CodingKey {
-        case nameOrPath = "_name_or_path", vocabSize = "vocab_size", dModel = "d_model", torchDtype = "torch_dtype"
+        case nameOrPath = "_name_or_path", vocabSize = "vocab_size", dModel = "d_model", numMelBins = "num_mel_bins"
+        case torchDtype = "torch_dtype", quantization, quantizationConfig = "quantization_config"
     }
 }
 
@@ -232,12 +236,19 @@ private func whisperKit(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed]) as
 /// the MLX Whisper engine runs from its safetensors. Repos often carry the same weights for PyTorch,
 /// TensorFlow and Flax too, and some an fp32 copy in shards beside `model.safetensors`; only one set is fetched.
 private func transformersWhisper(_ hub: HuggingFace, _ ref: Pinned, _ top: [Listed], _ configText: String) async throws -> HubRepoCheck {
+    let config = try JSONDecoder().decode(WhisperConfig.self, from: Data(configText.utf8))
+    // Conversions for mlx-audio or mlx-examples also say `whisper`, but name their weights differently and may be quantized.
+    if config.dModel == nil || config.numMelBins == nil || config.quantization != nil || config.quantizationConfig != nil {
+        throw Rejected(
+            reason: .unsupportedArchitecture,
+            message: "\(ref.label) is a Whisper converted for another runtime. OpenWispr runs OpenAI's own checkpoints, like openai/whisper-small.en"
+        )
+    }
     let has = { (rel: String) in top.contains { $0.rel == rel } }
     let weights = has("model.safetensors") ? ["model.safetensors"] : top.map(\.rel).filter { $0.matches(#"^model-\d+-of-\d+\.safetensors$"#) }
     let missing = (whisperTransformersFiles + (weights.isEmpty ? ["model.safetensors"] : missingShards(top.filter { weights.contains($0.rel) })))
         .filter { !has($0) }
     if !missing.isEmpty { throw missingFiles(ref.label, missing, needs: "Whisper on MLX needs") }
-    let config = try JSONDecoder().decode(WhisperConfig.self, from: Data(configText.utf8))
     let generation = try await readSmallFile(hub, ref, top, "generation_config.json")
     guard let vocabulary = try? WhisperVocabulary(generationConfig: Data(generation.utf8)) else {
         throw Rejected(reason: .missingFiles, message: "\(ref.label) has a generation_config.json without Whisper's special tokens")
