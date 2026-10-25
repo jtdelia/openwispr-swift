@@ -25,10 +25,10 @@ final class OpenWisprUITests: XCTestCase {
         item.click()
     }
 
-    /// Opens the Settings window from the hub's sidebar and selects `pane` in its own sidebar.
+    /// Opens the Settings window from the hub's sidebar unless it's already open, then selects `pane` in its own sidebar.
     private func openSettings(_ pane: String) {
-        open("Settings")
         let item = app.descendants(matching: .any)["settings-\(pane)"].firstMatch
+        if !item.exists { open("Settings") }
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.click()
     }

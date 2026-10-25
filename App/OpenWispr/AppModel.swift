@@ -173,7 +173,7 @@ final class AppModel {
         self.notetaker = notetaker
         self.shortcuts = shortcuts
         self.system = system
-        system.showSettingsAction = { [weak self] in self?.showSettings() }
+        system.showSettingsAction = { [weak self] in self?.showSettings(.speechToText) }
     }
 
     func launch() {

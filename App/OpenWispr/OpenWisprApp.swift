@@ -73,10 +73,15 @@ private struct MenuBarLabel: View {
 
 private struct MenuBarMenu: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Button("Open OpenWispr") { model.show(model.page) }
-        Button("Settings…") { model.showSettings() }.keyboardShortcut(",")
+        Button("Settings…") {
+            openSettings()
+            NSApp.activate()
+        }
+        .keyboardShortcut(",")
         Button("Start hands-free dictation") { model.dictation.start(.handsFree) }
         if model.notetaker.state.isRecording {
             Button("Stop taking meeting notes") { Task { await model.notetaker.stop() } }
