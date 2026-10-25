@@ -1,4 +1,5 @@
-# CI runs `make lint`, `make test`, and `make build` on a macOS 27 runner with Xcode 27.
+# CI runs `make lint`, `make test`, and `make build` on a macOS 27 runner with Xcode 27, and
+# `make ui-test` only on manual dispatch.
 
 # macOS ties permission grants to the signing identity. Ad-hoc builds lose them on every rebuild;
 # `make run SIGNING_IDENTITY="Apple Development"` keeps them.

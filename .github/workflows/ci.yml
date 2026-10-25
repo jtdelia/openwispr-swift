@@ -54,6 +54,8 @@ jobs:
 
   ui-test:
     name: UI tests
+    # Slow, so it runs on manual dispatch only. Run `make ui-test` locally instead.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: xcode-27
     timeout-minutes: 45
     steps:
