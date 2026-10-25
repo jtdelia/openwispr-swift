@@ -123,6 +123,7 @@ final class AppModel {
     }
 
     func launch() {
+        applyAppearance()
         flowBar = FlowBarPanel(model: self)
         if !isUITesting {
             KeyTap.shared.onKey = { [weak self] keycode, down in self?.handleKey(keycode, down: down) }
@@ -167,6 +168,7 @@ final class AppModel {
         dictation.syncShortcuts()
         dictation.refreshFlowBar()
         if settings.launchAtLogin != before.launchAtLogin { setLaunchAtLogin(settings.launchAtLogin) }
+        if settings.appearance != before.appearance { applyAppearance() }
         if settings.language != before.language || settings.speechToText != before.speechToText || settings.chat != before.chat {
             Task { await refreshBuiltInStatus() }
         }
@@ -192,6 +194,15 @@ final class AppModel {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
         } catch {
             print("openwispr: launch at login: \(error)")
+        }
+    }
+
+    /// Sets the appearance app-wide, so the hub, the Flow bar and the menu bar menu all match.
+    private func applyAppearance() {
+        switch store.settings.appearance {
+        case .system: NSApp.appearance = nil
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
         }
     }
 

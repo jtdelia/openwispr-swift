@@ -544,6 +544,16 @@ struct SettingsMigrationTests {
         #expect(openAi.applying(.endpoint(baseUrl: "https://api.groq.com/openai/v1", apiKey: "enc:groq")).endpoint?.apiKey == "enc:groq")
     }
 
+    @Test func `follows the system appearance unless the user chose light or dark`() throws {
+        #expect(try loadSettings("{}").appearance == .system)
+        #expect(try loadSettings(#"{"appearance":"dark"}"#).appearance == .dark)
+        #expect(try loadSettings(#"{"appearance":"sepia"}"#).appearance == .system)
+
+        var settings = Settings()
+        settings.appearance = .light
+        #expect(try JSONDecoder().decode(Settings.self, from: try JSONEncoder().encode(settings)).appearance == .light)
+    }
+
     @Test func `leaves already-migrated Endpoint selections alone`() throws {
         let settings = try loadSettings(groqFile)
         let roundTripped = try JSONDecoder().decode(Settings.self, from: try JSONEncoder().encode(settings))
