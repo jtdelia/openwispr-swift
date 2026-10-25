@@ -67,6 +67,7 @@ struct CachedModelsTests {
         let offline = FakeHub { _, _ in throw Dropped(message: "offline") }
 
         let models = await makeModels(offline, directory: directory, hubCache: cache)
+        await models.refreshCachedModels()
 
         #expect(models.cachedModels.map(\.id) == ["hf-mlx-community--Qwen3-1.7B-4bit", "hf-openai--whisper-small.en"])
         let whisper = try #require(models.cachedModels.last)
@@ -83,6 +84,7 @@ struct CachedModelsTests {
         try cacheRepo(cache, "openai/whisper-small.en", whisperRepo)
         let hub = FakeHub(["openai/whisper-small.en@\(sha)": whisperRepo])
         let models = await makeModels(hub, directory: directory, hubCache: cache)
+        await models.refreshCachedModels()
         let found = try #require(models.cachedModels.first)
 
         try await models.addModel(found.model)
@@ -98,6 +100,7 @@ struct CachedModelsTests {
         try cacheRepo(cache, "openai/whisper-small.en", revision: older, whisperRepo.filter { $0.path != "tokenizer.json" }, main: false)
         try cacheRepo(cache, "openai/whisper-small.en", whisperRepo)
         let models = await makeModels(directory: directory, hubCache: cache)
+        await models.refreshCachedModels()
         #expect(models.cachedModels.map { $0.model.sources[0].revision } == [sha])
 
         try cacheRepo(cache, "mlx-community/Qwen3-1.7B-4bit", mlxRepo)
@@ -112,7 +115,8 @@ struct CachedModelsTests {
                 + [("\(name)/config.json", text(#"{"_name_or_path":"openai/whisper-small","vocab_size":51865,"d_model":768}"#))]
         }
         try cacheRepo(cache, "argmaxinc/whisperkit-coreml", folder("openai_whisper-small_216MB") + folder("openai_whisper-small_hq"))
-        try cacheRepo(cache, "openai/whisper-small", [("tokenizer.json", text(#"{"model":{}}"#)), ("tokenizer_config.json", text("{}"))])
+        // Cached at a pinned commit, so it has a snapshot but no refs/main.
+        try cacheRepo(cache, "openai/whisper-small", [("tokenizer.json", text(#"{"model":{}}"#)), ("tokenizer_config.json", text("{}"))], main: false)
 
         let found = await discoverCachedModels(cache)
 
@@ -122,6 +126,8 @@ struct CachedModelsTests {
     @Test func `reads a model card’s languages from its front matter`() {
         #expect(cardLanguages("---\nlanguage:\n- en\n- fr\nlicense: mit\n---\n# Model") == ["en", "fr"])
         #expect(cardLanguages("---\nlanguage: de\n---\n") == ["de"])
+        #expect(cardLanguages("---\nlanguage: [en, 'fr', \"de\"]\n---\n") == ["en", "fr", "de"])
+        #expect(cardLanguages("---\r\nlanguage:\r\n- \"en\"\r\n- fr\r\n---\r\n") == ["en", "fr"])
         #expect(cardLanguages("# No front matter\nlanguage: en") == [])
     }
 }

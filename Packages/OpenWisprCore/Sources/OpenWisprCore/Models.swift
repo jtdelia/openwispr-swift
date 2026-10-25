@@ -127,6 +127,7 @@ public final class Models {
     /// Models whose files are being replaced or deleted, which take no new requests.
     @ObservationIgnored private var releasing: Set<String> = []
     @ObservationIgnored private var libraryRefresh: Task<Void, Never>?
+    @ObservationIgnored private var cacheScan: Task<Void, Never>?
 
     public init(
         settings: @escaping () -> Settings, engines: any BuiltInEngines, http: any HTTPClient, modelsDirectory: URL,
@@ -146,11 +147,10 @@ public final class Models {
         )
     }
 
-    /// Reads the installed models, which `availability` relies on, the library, and the Hugging Face cache.
+    /// Reads the installed models, which `availability` relies on, and the library.
     public func refresh() async {
         await refreshInstalled()
         await refreshLibrary()
-        await refreshCachedModels()
     }
 
     /// Runnable models in the Hugging Face cache that aren't in the library yet, ready to add without a download.
@@ -158,13 +158,21 @@ public final class Models {
         cached.filter { found in !library.models.contains { $0.model.id == found.id } }
     }
 
-    /// Looks through the Hugging Face cache again, reading only its small config files.
+    /// Looks through the Hugging Face cache again, reading only its small config files. A call during a scan
+    /// waits for that scan rather than starting another, so an older result never replaces a newer one.
     public func refreshCachedModels() async {
         guard let hubCache else { return }
+        if let cacheScan { return await cacheScan.value }
         let memory = physicalMemoryBytes
-        cached = await discoverCachedModels(hubCache).map {
-            CachedModel(model: $0.model, summary: $0.summary, oversized: Double($0.model.memoryBytes) > Double(memory) * memoryShare)
+        let scan = Task {
+            let found = await discoverCachedModels(hubCache)
+            cached = found.map {
+                CachedModel(model: $0.model, summary: $0.summary, oversized: Double($0.model.memoryBytes) > Double(memory) * memoryShare)
+            }
+            cacheScan = nil
         }
+        cacheScan = scan
+        await scan.value
     }
 
     public func refreshLibrary() async {

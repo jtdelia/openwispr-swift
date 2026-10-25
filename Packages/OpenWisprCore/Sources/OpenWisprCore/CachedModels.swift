@@ -69,12 +69,11 @@ struct CachedHub: HubRepoSource {
     }
 
     func repoInfo(_ repo: String, revision: String?) async throws -> RepoInfo {
-        let sha: String? = if let revision, snapshots(repo).contains(revision) {
-            revision
-        } else {
-            (try? String(contentsOf: folder(repo).appending(path: "refs/\(revision ?? "main")"), encoding: .utf8))?.trimmed
-        }
-        guard let sha, snapshots(repo).contains(sha) else {
+        let all = snapshots(repo)
+        let named = (try? String(contentsOf: folder(repo).appending(path: "refs/\(revision ?? "main")"), encoding: .utf8))?.trimmed
+        // Without a revision, any snapshot will do when `refs/main` is missing or points at a pruned one.
+        let sha = [revision, named].compactMap { $0 }.first(where: all.contains) ?? (revision == nil ? cachedRevision(repo) : nil)
+        guard let sha else {
             throw HubError(message: "\(repo) isn't in your Hugging Face cache", status: 404, code: "RevisionNotFound")
         }
         let readme = try? String(contentsOf: snapshot(repo, sha).appending(path: "README.md"), encoding: .utf8)
@@ -118,13 +117,18 @@ struct CachedHub: HubRepoSource {
     }
 }
 
-/// The `language` list of a model card's YAML front matter, like the Hub's info call reports it.
+/// The `language` list of a model card's YAML front matter, like the Hub's info call reports it: a scalar,
+/// a block list or a flow list, each item optionally quoted.
 func cardLanguages(_ readme: String) -> [String] {
-    let lines = readme.components(separatedBy: .newlines)
+    let lines = readme.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
     guard lines.first?.trimmed == "---", let end = lines.dropFirst().firstIndex(where: { $0.trimmed == "---" }) else { return [] }
     let front = lines[1..<end]
     guard let key = front.firstIndex(where: { $0.hasPrefix("language:") }) else { return [] }
+    let unquote = { (item: String) in item.trimmed.trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) }
     let inline = String(front[key].dropFirst("language:".count)).trimmed
-    if !inline.isEmpty { return [inline] }
-    return front[(key + 1)...].prefix { $0.trimmed.hasPrefix("- ") }.map { String($0.trimmed.dropFirst(2)).trimmed }
+    if inline.hasPrefix("[") {
+        return inline.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).split(separator: ",").map { unquote(String($0)) }.filter { !$0.isEmpty }
+    }
+    if !inline.isEmpty { return [unquote(inline)] }
+    return front[(key + 1)...].prefix { $0.trimmed.hasPrefix("- ") }.map { unquote(String($0.trimmed.dropFirst(2))) }
 }

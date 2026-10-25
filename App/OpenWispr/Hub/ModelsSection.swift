@@ -140,6 +140,7 @@ private struct CachedModels: View {
                     if cached.oversized { Badge(text: "Needs more memory than this Mac can spare", tone: .warn) }
                 }
                 Text("\(entry.task.title) · \(cached.summary) · \(Format.bytes(entry.sizeBytes)) on disk · about \(Format.bytes(entry.memoryBytes)) memory · \(entry.speed.label) · \(entry.languages)")
+                if !entry.isRunnable { Text("It can be added now and selected once Lens ships.") }
             }
             .accessibilityIdentifier("cached-\(entry.id)")
         }

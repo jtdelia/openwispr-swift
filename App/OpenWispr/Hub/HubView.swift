@@ -7,12 +7,13 @@ struct HubView: View {
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
-            List(Page.allCases, selection: $model.page) { page in
-                Label(page.title, systemImage: page.symbol)
-                    .tag(page)
-                    .accessibilityIdentifier("nav-\(page.rawValue)")
-            }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+            List(Page.allCases.filter { $0 != .settings }, selection: $model.page, rowContent: navRow)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    List([Page.settings], selection: $model.page, rowContent: navRow)
+                        .scrollDisabled(true)
+                        .frame(height: 44)
+                }
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } detail: {
             switch model.page {
             case .home: HomePage()
@@ -28,5 +29,11 @@ struct HubView: View {
         .onAppear {
             model.openHub = { openWindow(id: OpenWisprApp.hubWindowId) }
         }
+    }
+
+    private func navRow(_ page: Page) -> some View {
+        Label(page.title, systemImage: page.symbol)
+            .tag(page)
+            .accessibilityIdentifier("nav-\(page.rawValue)")
     }
 }

@@ -144,6 +144,7 @@ final class AppModel {
             await models.refresh()
             models.warmUp()
             await refreshBuiltInStatus()
+            await models.refreshCachedModels()
         }
     }
 
