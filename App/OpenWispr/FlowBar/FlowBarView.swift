@@ -29,6 +29,9 @@ struct FlowBarView: View {
         }
         .padding(.bottom, 8)
         .frame(width: FlowBarPanel.size.width, height: FlowBarPanel.size.height)
+        .overlay(alignment: .topLeading) {
+            if model.isUITesting { AppliedColorScheme(id: "flow-bar-color-scheme").font(.caption2) }
+        }
         .animation(.spring(duration: 0.3), value: state)
         .animation(.spring(duration: 0.25), value: hover.isHovered)
         .task(id: isListening) {

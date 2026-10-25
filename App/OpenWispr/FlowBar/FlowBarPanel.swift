@@ -26,6 +26,8 @@ final class FlowBarPanel {
         panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = false
+        // Light glass reads as a solid white blob over other apps, so the pill stays dark in every appearance.
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.hidesOnDeactivate = false
         // XCUITest clicks without hovering first, so under test the panel always takes the mouse.
         tracksMouse = !model.isUITesting
