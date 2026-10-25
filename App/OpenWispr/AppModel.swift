@@ -200,7 +200,7 @@ final class AppModel {
         }
     }
 
-    /// Sets the appearance app-wide, so the hub, the Flow bar and the menu bar menu all match.
+    /// Sets the appearance app-wide, so the hub and the menu bar menu match. The Flow bar stays dark.
     private func applyAppearance() {
         switch store.settings.appearance {
         case .system: NSApp.appearance = nil

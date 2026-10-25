@@ -195,3 +195,13 @@ struct MarkdownView: View {
         return blocks
     }
 }
+
+/// The color scheme SwiftUI is drawing with, for UI tests to check which appearance took effect.
+struct AppliedColorScheme: View {
+    let id: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Text(colorScheme == .dark ? "dark" : "light").accessibilityIdentifier(id)
+    }
+}

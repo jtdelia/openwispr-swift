@@ -139,6 +139,8 @@ final class OpenWisprUITests: XCTestCase {
         picker.radioButtons["Light"].click()
         XCTAssertTrue(chosen("Light"))
         XCTAssertEqual(scheme(), "light")
+        let flowBar = app.staticTexts["flow-bar-color-scheme"].firstMatch
+        XCTAssertEqual(flowBar.value as? String ?? flowBar.label, "dark", "The Flow bar stays dark in light mode")
 
         picker.radioButtons["System"].click()
         XCTAssertTrue(chosen("System"))
