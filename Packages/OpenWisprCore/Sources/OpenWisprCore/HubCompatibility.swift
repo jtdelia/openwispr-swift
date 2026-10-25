@@ -29,6 +29,10 @@ private let whisperMultilingualVocab = 51865
 private let whisperV3Vocab = 51866
 /// Measured on the Recommended Core ML models: about 1.7× their download while loaded.
 private let coreMlMemoryFactor = 1.7
+/// What the MLX Whisper engine reads besides the weights.
+private let whisperTransformersFiles = ["config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json"]
+/// Measured: openai/whisper-medium.en peaks at about 1.7× its float16 weights while loading and transcribing.
+private let mlxWhisperMemoryFactor = 1.7
 /// swift-transformers loads a tokenizer from these two files only.
 private let mlxTokenizer = ["tokenizer.json", "tokenizer_config.json"]
 /// Far above real configs and chat templates (a tokenizer_config.json is at most a few MB).
@@ -184,9 +188,14 @@ private struct WhisperConfig: Decodable {
     var nameOrPath: String?
     var vocabSize: Int?
     var dModel: Int?
+    var numMelBins: Int?
+    var torchDtype: String?
+    var quantization: MlxConfig.Quantization?
+    var quantizationConfig: MlxConfig.Quantization?
 
     enum CodingKeys: String, CodingKey {
-        case nameOrPath = "_name_or_path", vocabSize = "vocab_size", dModel = "d_model"
+        case nameOrPath = "_name_or_path", vocabSize = "vocab_size", dModel = "d_model", numMelBins = "num_mel_bins"
+        case torchDtype = "torch_dtype", quantization, quantizationConfig = "quantization_config"
     }
 }
 
@@ -220,6 +229,44 @@ private func whisperKit(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed]) as
             languages: english ? "English" : "99 languages", languageCodes: english ? ["en"] : nil
         ),
         summary: "WhisperKit (Core ML), tokenizer from \(tokenizerRepo)"
+    )
+}
+
+/// A Whisper checkpoint in Transformers format, like `openai/whisper-small.en` or distil-whisper's, which
+/// the MLX Whisper engine runs from its safetensors. Repos often carry the same weights for PyTorch,
+/// TensorFlow and Flax too, and some an fp32 copy in shards beside `model.safetensors`; only one set is fetched.
+private func transformersWhisper(_ hub: HuggingFace, _ ref: Pinned, _ top: [Listed], _ configText: String) async throws -> HubRepoCheck {
+    let config = try JSONDecoder().decode(WhisperConfig.self, from: Data(configText.utf8))
+    // Conversions for mlx-audio or mlx-examples also say `whisper`, but name their weights differently and may be quantized.
+    if config.dModel == nil || config.numMelBins == nil || config.quantization != nil || config.quantizationConfig != nil {
+        throw Rejected(
+            reason: .unsupportedArchitecture,
+            message: "\(ref.label) is a Whisper converted for another runtime. OpenWispr runs OpenAI's own checkpoints, like openai/whisper-small.en"
+        )
+    }
+    let has = { (rel: String) in top.contains { $0.rel == rel } }
+    let weights = has("model.safetensors") ? ["model.safetensors"] : top.map(\.rel).filter { $0.matches(#"^model-\d+-of-\d+\.safetensors$"#) }
+    let missing = (whisperTransformersFiles + (weights.isEmpty ? ["model.safetensors"] : missingShards(top.filter { weights.contains($0.rel) })))
+        .filter { !has($0) }
+    if !missing.isEmpty { throw missingFiles(ref.label, missing, needs: "Whisper on MLX needs") }
+    let generation = try await readSmallFile(hub, ref, top, "generation_config.json")
+    guard let vocabulary = try? WhisperVocabulary(generationConfig: Data(generation.utf8)) else {
+        throw Rejected(reason: .missingFiles, message: "\(ref.label) has a generation_config.json without Whisper's special tokens")
+    }
+    let picked = top.filter { weights.contains($0.rel) || whisperTransformersFiles.contains($0.rel) }
+    let weightBytes = sum(picked.filter { weights.contains($0.rel) })
+    // The engine runs in float16, so fp32 weights take half their size once loaded.
+    let loadedBytes = config.torchDtype == "float32" ? weightBytes / 2 : weightBytes
+    let english = !vocabulary.isMultilingual
+    let (id, name) = identity(ref)
+    return .compatible(
+        model: ModelEntry(
+            id: id, name: name, task: .speechToText, engine: .mlxWhisper, sources: [source(ref, picked.map(\.path).sorted())],
+            sizeBytes: sum(picked), memoryBytes: Int64((Double(loadedBytes) * mlxWhisperMemoryFactor).rounded()),
+            speed: whisperSpeed(loadedBytes), languages: english ? "English" : "\(vocabulary.languages.count) languages",
+            languageCodes: english ? ["en"] : nil
+        ),
+        summary: "Whisper on MLX, \(config.torchDtype ?? "float16") weights"
     )
 }
 
@@ -292,7 +339,9 @@ private func mlx(_ hub: HuggingFace, _ ref: Pinned, _ info: RepoInfo, _ files: [
     let top = files.filter { !$0.rel.contains("/") }
     let has = { (rel: String) in top.contains { $0.rel == rel } }
     if !has("config.json") { throw missingFiles(ref.label, ["config.json"], needs: "MLX models need") }
-    let config = try JSONDecoder().decode(MlxConfig.self, from: Data(try await readSmallFile(hub, ref, top, "config.json").utf8))
+    let configText = try await readSmallFile(hub, ref, top, "config.json")
+    let config = try JSONDecoder().decode(MlxConfig.self, from: Data(configText.utf8))
+    if config.modelType == "whisper" { return try await transformersWhisper(hub, ref, top, configText) }
     let bits = try mlxBits(ref, config)
     let modelType = config.modelType ?? ""
     guard let task = mlxTask(modelType) else {

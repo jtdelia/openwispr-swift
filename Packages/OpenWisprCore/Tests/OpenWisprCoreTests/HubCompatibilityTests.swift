@@ -291,6 +291,104 @@ struct WhisperKitRepoTests {
     }
 }
 
+private let englishGeneration = #"{"eos_token_id":50256,"decoder_start_token_id":50257,"prev_sot_token_id":50360,"no_timestamps_token_id":50362}"#
+private let multilingualGeneration = #"""
+{"eos_token_id":50257,"decoder_start_token_id":50258,"prev_sot_token_id":50361,"no_timestamps_token_id":50363,
+ "lang_to_id":{"<|en|>":50259,"<|de|>":50261,"<|fr|>":50265},"task_to_id":{"transcribe":50359}}
+"""#
+
+/// Laid out like OpenAI's repos, with the same weights for PyTorch, TensorFlow and Flax beside the safetensors.
+private func openAiWhisperRepo(dtype: String = "float32", generation: String = englishGeneration) -> FakeRepo {
+    [
+        (".gitattributes", text("*.safetensors filter=lfs")),
+        ("README.md", text("# Whisper")),
+        ("added_tokens.json", text("{}")),
+        ("config.json", text(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"num_mel_bins":80,"torch_dtype":"\#(dtype)"}"#)),
+        ("flax_model.msgpack", FakeFile(content: weights, lfs: true)),
+        ("generation_config.json", text(generation)),
+        ("model.safetensors", FakeFile(content: weights, lfs: true)),
+        ("preprocessor_config.json", text("{}")),
+        ("pytorch_model.bin", FakeFile(content: weights, lfs: true)),
+        ("tf_model.h5", FakeFile(content: weights, lfs: true)),
+        ("tokenizer.json", text(#"{"model":{}}"#)),
+        ("tokenizer_config.json", text("{}")),
+    ]
+}
+
+@MainActor
+@Suite("Checking a Whisper repo in Transformers format")
+struct TransformersWhisperRepoTests {
+    let directory: URL
+    init() throws { directory = try temporaryDirectory() }
+
+    @Test func `accepts OpenAI’s own repo for Whisper on MLX, fetching only the safetensors and the files it reads`() async throws {
+        let hub = FakeHub(["openai/whisper-small.en@\(sha)": openAiWhisperRepo()])
+        let check = await makeModels(hub, directory: directory).checkRepo("https://huggingface.co/openai/whisper-small.en")
+        guard case let .compatible(model, summary, oversized) = check else {
+            Issue.record("\(check)")
+            return
+        }
+        #expect(summary == "Whisper on MLX, float32 weights" && !oversized)
+        #expect(model.id == "hf-openai--whisper-small.en" && model.name == "whisper-small.en")
+        #expect(model.task == .speechToText && model.engine == .mlxWhisper && model.isRunnable)
+        #expect(model.sources == [ModelSource(
+            repo: "openai/whisper-small.en", revision: sha,
+            files: ["config.json", "generation_config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json"]
+        )])
+        let configBytes = Int64(#"{"model_type":"whisper","vocab_size":51864,"d_model":768,"num_mel_bins":80,"torch_dtype":"float32"}"#.utf8.count)
+        #expect(model.sizeBytes == configBytes + Int64(englishGeneration.utf8.count) + 5000 + 12 + 2)
+        #expect(model.memoryBytes == Int64((2500 * 1.7).rounded()))
+        #expect(model.languages == "English" && model.languageCodes == ["en"])
+        #expect(!hub.downloadedPaths.contains("model.safetensors"))
+    }
+
+    @Test func `counts a multilingual model’s languages from its generation config`() async throws {
+        let hub = FakeHub(["openai/whisper-base@\(sha)": openAiWhisperRepo(dtype: "float16", generation: multilingualGeneration)])
+        let model = try compatible(await makeModels(hub, directory: directory).checkRepo("openai/whisper-base"))
+        #expect(model.languages == "3 languages" && model.languageCodes == nil)
+        #expect(model.memoryBytes == Int64((5000 * 1.7).rounded()))
+    }
+
+    @Test func `takes model.safetensors over an fp32 copy in shards, like large-v3 ships`() async throws {
+        let repo = openAiWhisperRepo(dtype: "float16") + [
+            ("model.fp32-00001-of-00002.safetensors", FakeFile(content: weights, lfs: true)),
+            ("model.fp32-00002-of-00002.safetensors", FakeFile(content: weights, lfs: true)),
+        ]
+        let hub = FakeHub(["openai/whisper-large-v3@\(sha)": repo])
+        let model = try compatible(await makeModels(hub, directory: directory).checkRepo("openai/whisper-large-v3"))
+        #expect(model.sources.first?.files?.filter { $0.hasSuffix(".safetensors") } == ["model.safetensors"])
+    }
+
+    @Test func `rejects a Whisper repo missing a file the engine reads`() async {
+        for missing in ["generation_config.json", "tokenizer.json", "tokenizer_config.json"] {
+            let hub = FakeHub(["openai/whisper-small.en@\(sha)": openAiWhisperRepo().filter { $0.path != missing }])
+            #expect(await makeModels(hub, directory: directory).checkRepo("openai/whisper-small.en") == .rejected(
+                reason: .missingFiles, message: "openai/whisper-small.en is missing \(missing), which Whisper on MLX needs"
+            ))
+        }
+    }
+
+    @Test(arguments: [
+        #"{"model_type":"whisper","n_mels":80,"n_audio_state":768,"quantization":{"group_size":64,"bits":4}}"#,
+        #"{"model_type":"whisper","d_model":768,"num_mel_bins":80,"quantization_config":{"bits":4,"quant_method":"awq"}}"#,
+    ])
+    func `rejects a Whisper converted for another runtime, which the engine can’t load`(config: String) async {
+        let repo = openAiWhisperRepo().map { $0.path == "config.json" ? ($0.path, text(config)) : $0 }
+        let hub = FakeHub(["mlx-community/whisper-small.en-asr-4bit@\(sha)": repo])
+        #expect(await makeModels(hub, directory: directory).checkRepo("mlx-community/whisper-small.en-asr-4bit") == .rejected(
+            reason: .unsupportedArchitecture,
+            message: "mlx-community/whisper-small.en-asr-4bit is a Whisper converted for another runtime. OpenWispr runs OpenAI's own checkpoints, like openai/whisper-small.en"
+        ))
+    }
+
+    @Test func `rejects a generation config without Whisper’s special tokens`() async {
+        let hub = FakeHub(["someone/whisper-tuned@\(sha)": openAiWhisperRepo(generation: #"{"max_length":448}"#)])
+        #expect(await makeModels(hub, directory: directory).checkRepo("someone/whisper-tuned") == .rejected(
+            reason: .missingFiles, message: "someone/whisper-tuned has a generation_config.json without Whisper's special tokens"
+        ))
+    }
+}
+
 @MainActor
 @Suite("Checking a FluidAudio repo")
 struct FluidAudioRepoTests {

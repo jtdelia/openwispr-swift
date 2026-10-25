@@ -12,14 +12,16 @@ public enum ModelTask: String, Sendable, Codable, CaseIterable {
     }
 }
 
+/// `mlxWhisper` runs Whisper checkpoints in Transformers format, like OpenAI's own repos, with MLX.
 public enum ModelEngine: String, Sendable, Codable {
-    case whisperKit, fluidAudio, mlx
+    case whisperKit, fluidAudio, mlx, mlxWhisper
 
     public var label: String {
         switch self {
         case .whisperKit: "WhisperKit"
         case .fluidAudio: "FluidAudio"
         case .mlx: "MLX"
+        case .mlxWhisper: "Whisper on MLX"
         }
     }
 }
@@ -27,7 +29,7 @@ public enum ModelEngine: String, Sendable, Codable {
 /// Engines OpenWispr can run, per task; installed models of other engines can't be selected yet.
 public func runnableEngines(_ task: ModelTask) -> [ModelEngine] {
     switch task {
-    case .speechToText: [.whisperKit, .fluidAudio]
+    case .speechToText: [.whisperKit, .fluidAudio, .mlxWhisper]
     case .chat: [.mlx]
     case .vision: []
     }

@@ -343,7 +343,7 @@ public final class Models {
                 try await engines.transcribe(model: model, wav: wav, language: language, prompt: prompt, segments: segments)
             }
         } catch let ModelError.unsupportedLanguage(message) {
-            let isWhisper = installed[model]?.entry.engine == .whisperKit
+            let isWhisper = [.whisperKit, .mlxWhisper].contains(installed[model]?.entry.engine)
             let hint = isWhisper ? "Choose another language" : "Download a Whisper model or choose another language"
             throw ModelError.unsupportedLanguage("\(message). \(hint) in Settings")
         }
