@@ -123,6 +123,25 @@ struct CachedModelsTests {
         #expect(found.map(\.model.name) == ["openai_whisper-small_hq"])
     }
 
+    @Test func `skips a snapshot whose files aren't linked to blobs, since adding it would download them`() async throws {
+        let snapshot = cache.directory.appending(path: "models--openai--whisper-small.en/snapshots/\(sha)")
+        try FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+        for (path, file) in whisperRepo { try file.content.write(to: snapshot.appending(path: path)) }
+
+        let found = await discoverCachedModels(cache)
+
+        #expect(found.isEmpty)
+    }
+
+    @Test func `reads the languages of a model card too large to read whole`() async throws {
+        let card = "---\nlanguage:\n- en\n- fr\n---\n" + String(repeating: "é", count: 200_000)
+        try cacheRepo(cache, "openai/whisper-small.en", [("README.md", text(card))])
+
+        let info = try await CachedHub(cache: cache).repoInfo("openai/whisper-small.en", revision: nil)
+
+        #expect(info.languages == ["en", "fr"])
+    }
+
     @Test func `reads a model card’s languages from its front matter`() {
         #expect(cardLanguages("---\nlanguage:\n- en\n- fr\nlicense: mit\n---\n# Model") == ["en", "fr"])
         #expect(cardLanguages("---\nlanguage: de\n---\n") == ["de"])

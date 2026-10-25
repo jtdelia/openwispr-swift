@@ -1,5 +1,7 @@
 import Foundation
 
+private let maxCardBytes = 64_000
+
 /// A model in the Hugging Face cache that OpenWispr can run, found without the network. Adding it
 /// installs the cached revision, so its files are cloned from the cache rather than downloaded.
 public struct CachedModel: Sendable, Equatable, Identifiable {
@@ -76,7 +78,10 @@ struct CachedHub: HubRepoSource {
         guard let sha else {
             throw HubError(message: "\(repo) isn't in your Hugging Face cache", status: 404, code: "RevisionNotFound")
         }
-        let readme = try? String(contentsOf: snapshot(repo, sha).appending(path: "README.md"), encoding: .utf8)
+        // A publisher can upload a README of any size, so only enough for its front matter is read.
+        let card = try? FileHandle(forReadingFrom: snapshot(repo, sha).appending(path: "README.md"))
+        defer { try? card?.close() }
+        let readme = (try? card?.read(upToCount: maxCardBytes)).flatMap { $0 }.map { String(decoding: $0, as: UTF8.self) }
         return RepoInfo(sha: sha, gated: false, languages: readme.map(cardLanguages) ?? [])
     }
 
@@ -87,13 +92,16 @@ struct CachedHub: HubRepoSource {
         var files: [HubFile] = []
         for path in paths where path.hasPrefix(prefix) {
             let blob = root.appending(path: path).resolvingSymlinksInPath()
-            guard let attributes = try? FileManager.default.attributesOfItem(atPath: blob.path),
+            let name = blob.lastPathComponent
+            let lfs = name.matches("^[0-9a-f]{64}$")
+            // A file not linked to a blob named by its hash can't be cloned on Add, so the snapshot counts as missing it.
+            guard lfs || name.matches("^[0-9a-f]{40}$"),
+                  let attributes = try? FileManager.default.attributesOfItem(atPath: blob.path),
                   attributes[.type] as? FileAttributeType == .typeRegular
             else { continue }
-            let name = blob.lastPathComponent
             files.append(HubFile(
                 repo: repo, revision: revision, path: path, size: (attributes[.size] as? NSNumber)?.int64Value ?? 0,
-                sha256: name.matches("^[0-9a-f]{64}$") ? name : nil, gitOid: name.matches("^[0-9a-f]{40}$") ? name : ""
+                sha256: lfs ? name : nil, gitOid: lfs ? "" : name
             ))
         }
         return files.sorted { $0.path < $1.path }
