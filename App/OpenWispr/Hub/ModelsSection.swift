@@ -18,12 +18,14 @@ struct ModelsSection: View {
                     }
                 }
             }
+            if !model.models.cachedModels.isEmpty { CachedModels(found: model.models.cachedModels) }
             AddFromHub()
         } header: {
             Text("Built-in models")
         } footer: {
             Text("Recommended models, and any you add, run on this Mac and are downloaded from Hugging Face, reusing any files already in your Hugging Face cache. Downloaded models use \(Format.bytes(library.diskUsageBytes)) on disk.\(notice.map { " \($0)" } ?? "")")
         }
+        .task { await model.models.refreshCachedModels() }
     }
 
     /// The role a downloaded model is selected for, if any; it can't be removed while selected.
@@ -111,6 +113,50 @@ private struct ModelRow: View {
                     .disabled(selectedFor != nil)
                     .help(selectedFor.map { "Choose another \($0.name) model to remove it" } ?? "")
             }
+        }
+    }
+}
+
+/// Runnable models already in the Hugging Face cache, added in one click without a download.
+private struct CachedModels: View {
+    @Environment(AppModel.self) private var model
+    let found: [CachedModel]
+    @State private var adding: Set<String> = []
+    @State private var notice: String?
+
+    var body: some View {
+        Text("Found in your Hugging Face cache").font(.headline).padding(.top, 4)
+        Text("These are already on this Mac, so adding one copies its files from the cache instead of downloading them.")
+            .font(.callout).foregroundStyle(.secondary)
+        ForEach(found) { cached in
+            let entry = cached.model
+            LabeledContent {
+                Button(adding.contains(entry.id) ? "Adding…" : "Add") { add(entry) }
+                    .disabled(adding.contains(entry.id))
+                    .accessibilityIdentifier("cached-add-\(entry.id)")
+            } label: {
+                HStack(spacing: 6) {
+                    Text(entry.name)
+                    if cached.oversized { Badge(text: "Needs more memory than this Mac can spare", tone: .warn) }
+                }
+                Text("\(entry.task.title) · \(cached.summary) · \(Format.bytes(entry.sizeBytes)) on disk · about \(Format.bytes(entry.memoryBytes)) memory · \(entry.speed.label) · \(entry.languages)")
+                if !entry.isRunnable { Text("It can be added now and selected once Lens ships.") }
+            }
+            .accessibilityIdentifier("cached-\(entry.id)")
+        }
+        if let notice { ErrorText(notice) }
+    }
+
+    private func add(_ entry: ModelEntry) {
+        adding.insert(entry.id)
+        notice = nil
+        Task {
+            do {
+                try await model.models.addModel(entry)
+            } catch {
+                notice = "Couldn’t add \(entry.name): \(errorMessage(error))"
+            }
+            adding.remove(entry.id)
         }
     }
 }

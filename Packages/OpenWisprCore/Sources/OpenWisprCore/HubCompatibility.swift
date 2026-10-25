@@ -39,6 +39,18 @@ private let mlxTokenizer = ["tokenizer.json", "tokenizer_config.json"]
 private let maxTextFileBytes: Int64 = 32_000_000
 private let findMlx = "Look for an MLX version, often from mlx-community"
 
+/// Where a repo check reads a repo: Hugging Face itself, or the local Hugging Face cache.
+public protocol HubRepoSource: Sendable {
+    /// `revision` is a branch, tag or sha; without it, the head of the default branch.
+    func repoInfo(_ repo: String, revision: String?) async throws -> RepoInfo
+    /// Every file in `repo` at `revision`, or only those under `folder`.
+    func listRepoFiles(repo: String, revision: String, folder: String?) async throws -> [HubFile]
+    /// A small file's text, like `config.json`.
+    func readRepoFile(repo: String, revision: String, path: String) async throws -> String
+}
+
+extension HuggingFace: HubRepoSource {}
+
 /// A `RepoCheck` before `Models` weighs a compatible model against this Mac's memory.
 public enum HubRepoCheck: Sendable, Equatable {
     case compatible(model: ModelEntry, summary: String)
@@ -105,7 +117,7 @@ private func label(_ repo: String, _ folder: String?) -> String { folder.map { "
 private func sum(_ files: [Listed]) -> Int64 { files.reduce(0) { $0 + $1.size } }
 
 /// Whether OpenWispr can run the model in a pasted repo, and the entry to download it with if so.
-public func checkHubRepo(_ hub: HuggingFace, _ input: String) async -> HubRepoCheck {
+public func checkHubRepo(_ hub: any HubRepoSource, _ input: String) async -> HubRepoCheck {
     guard let ref = parseRepoReference(input) else {
         return .rejected(reason: .invalidReference, message: "Paste a Hugging Face model id like mlx-community/Qwen3-4B-Instruct-2507-4bit, or its URL")
     }
@@ -147,7 +159,7 @@ private func asRejection(_ error: any Error) -> Rejected {
     return Rejected(reason: .hubFailed, message: "Couldn't check the repo on Hugging Face: \(errorMessage(error))")
 }
 
-private func classify(_ hub: HuggingFace, _ ref: Pinned, _ info: RepoInfo, _ listed: [HubFile]) async throws -> HubRepoCheck {
+private func classify(_ hub: any HubRepoSource, _ ref: Pinned, _ info: RepoInfo, _ listed: [HubFile]) async throws -> HubRepoCheck {
     let prefix = ref.folder.map { "\($0)/" } ?? ""
     let files = listed.filter { $0.path.hasPrefix(prefix) }.map { Listed(file: $0, rel: String($0.path.dropFirst(prefix.count))) }
     let dirs = Set(files.filter { $0.rel.contains("/") }.map { String($0.rel.split(separator: "/")[0]) })
@@ -199,7 +211,7 @@ private struct WhisperConfig: Decodable {
     }
 }
 
-private func whisperKit(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed]) async throws -> HubRepoCheck {
+private func whisperKit(_ hub: any HubRepoSource, _ ref: Pinned, _ files: [Listed]) async throws -> HubRepoCheck {
     let has = { (rel: String) in files.contains { $0.rel == rel } }
     let missing = whisperKitModels.map { "\($0).mlmodelc" }.filter { !has("\($0)/coremldata.bin") } + ["config.json"].filter { !has($0) }
     if !missing.isEmpty { throw missingFiles(ref.label, missing, needs: "WhisperKit needs") }
@@ -212,8 +224,8 @@ private func whisperKit(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed]) as
     var sources = [source(ref, pickedPaths)]
     var sizeBytes = sum(picked)
     if !whisperTokenizer.allSatisfy(has) {
-        let tokenizer = try await hub.repoInfo(tokenizerRepo)
-        let listed = try await hub.listRepoFiles(repo: tokenizerRepo, revision: tokenizer.sha)
+        let tokenizer = try await hub.repoInfo(tokenizerRepo, revision: nil)
+        let listed = try await hub.listRepoFiles(repo: tokenizerRepo, revision: tokenizer.sha, folder: nil)
         let tokenizerFiles = listed.filter { whisperTokenizer.contains($0.path) }
         let absent = whisperTokenizer.filter { rel in !tokenizerFiles.contains { $0.path == rel } }
         if !absent.isEmpty { throw missingFiles(tokenizerRepo, absent, needs: "WhisperKit needs") }
@@ -235,7 +247,7 @@ private func whisperKit(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed]) as
 /// A Whisper checkpoint in Transformers format, like `openai/whisper-small.en` or distil-whisper's, which
 /// the MLX Whisper engine runs from its safetensors. Repos often carry the same weights for PyTorch,
 /// TensorFlow and Flax too, and some an fp32 copy in shards beside `model.safetensors`; only one set is fetched.
-private func transformersWhisper(_ hub: HuggingFace, _ ref: Pinned, _ top: [Listed], _ configText: String) async throws -> HubRepoCheck {
+private func transformersWhisper(_ hub: any HubRepoSource, _ ref: Pinned, _ top: [Listed], _ configText: String) async throws -> HubRepoCheck {
     let config = try JSONDecoder().decode(WhisperConfig.self, from: Data(configText.utf8))
     // Conversions for mlx-audio or mlx-examples also say `whisper`, but name their weights differently and may be quantized.
     if config.dModel == nil || config.numMelBins == nil || config.quantization != nil || config.quantizationConfig != nil {
@@ -335,7 +347,7 @@ private struct MlxConfig: Decodable {
     }
 }
 
-private func mlx(_ hub: HuggingFace, _ ref: Pinned, _ info: RepoInfo, _ files: [Listed]) async throws -> HubRepoCheck {
+private func mlx(_ hub: any HubRepoSource, _ ref: Pinned, _ info: RepoInfo, _ files: [Listed]) async throws -> HubRepoCheck {
     let top = files.filter { !$0.rel.contains("/") }
     let has = { (rel: String) in top.contains { $0.rel == rel } }
     if !has("config.json") { throw missingFiles(ref.label, ["config.json"], needs: "MLX models need") }
@@ -413,7 +425,7 @@ private func mlxSpeed(_ weightBytes: Int64) -> SpeedTier {
 }
 
 /// Reads a config or template the listing shows as small, since a repo can publish any size.
-private func readSmallFile(_ hub: HuggingFace, _ ref: Pinned, _ files: [Listed], _ rel: String) async throws -> String {
+private func readSmallFile(_ hub: any HubRepoSource, _ ref: Pinned, _ files: [Listed], _ rel: String) async throws -> String {
     let size = files.first { $0.rel == rel }?.size ?? 0
     if size > maxTextFileBytes {
         throw Rejected(reason: .missingFiles, message: "\(ref.label) has a \(rel) of \(Int((Double(size) / 1e6).rounded())) MB, too large to be a real one")
