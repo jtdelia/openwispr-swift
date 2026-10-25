@@ -21,17 +21,18 @@ public struct HubCache: Sendable, Equatable {
         return HubCache(directory: home.appending(path: ".cache/huggingface/hub", directoryHint: .isDirectory))
     }
 
-    /// A cached copy of `file`, looked up in its own repo first and then in any other, since blobs are
-    /// named by content. Its size matches; the caller still verifies its hash.
-    func blob(for file: HubFile) -> URL? {
+    /// Cached copies of `file` of the right size, from its own repo first and then any other, since blobs
+    /// are named by content. Newer `huggingface_hub` versions link blobs into a shared store, so these are
+    /// the files the links point to. The caller still verifies their hashes.
+    func blobs(for file: HubFile) -> [URL] {
         let name = file.sha256 ?? file.gitOid
-        guard name.matches("^[0-9a-f]{40,64}$") else { return nil }
+        guard name.matches("^[0-9a-f]{40,64}$") else { return [] }
         let own = "models--\(file.repo.replacingOccurrences(of: "/", with: "--"))"
         let others = ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
             .filter { $0.hasPrefix("models--") && $0 != own }
             .sorted()
-        return ([own] + others).lazy
-            .map { directory.appending(path: "\($0)/blobs/\(name)") }
-            .first { sizeOf($0) == file.size }
+        return ([own] + others)
+            .map { directory.appending(path: "\($0)/blobs/\(name)").resolvingSymlinksInPath() }
+            .filter { sizeOf($0) == file.size }
     }
 }

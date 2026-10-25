@@ -269,6 +269,54 @@ struct HubCacheDownloadTests {
         #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
     }
 
+    @Test func `follows a cached blob that links into a shared store, copying its content`() async throws {
+        let store = cache.directory.appending(path: "blobs/ab")
+        try FileManager.default.createDirectory(at: store, withIntermediateDirectories: true)
+        try weights.write(to: store.appending(path: sha256Hex(weights)))
+        let blobs = cache.directory.appending(path: "models--mlx-community--Qwen3-4B-Instruct-2507-4bit/blobs")
+        try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            atPath: blobs.appending(path: sha256Hex(weights)).path, withDestinationPath: "../../blobs/ab/\(sha256Hex(weights))"
+        )
+        let hub = FakeHub([qwen: qwenRepo])
+
+        try await makeModels(hub, directory: directory, hubCache: cache).download(qwenId)
+
+        #expect(weightRequests(hub).isEmpty)
+        let installed = directory.appending(path: "\(qwenId)/model.safetensors")
+        #expect(try FileManager.default.attributesOfItem(atPath: installed.path)[.type] as? FileAttributeType == .typeRegular)
+        #expect(try Data(contentsOf: installed) == weights)
+    }
+
+    @Test func `tries every cached copy until one matches its hash`() async throws {
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), Data(repeating: 1, count: weights.count))
+        try cacheBlob("someone/qwen3-fork", sha256Hex(weights), weights)
+        let hub = FakeHub([qwen: qwenRepo])
+
+        try await makeModels(hub, directory: directory, hubCache: cache).download(qwenId)
+
+        #expect(weightRequests(hub).isEmpty)
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
+        #expect(!exists(directory.appending(path: "\(qwenId)/model.safetensors.cached")))
+    }
+
+    @Test func `keeps a partial download when the cached copy doesn't match, and resumes it`() async throws {
+        let dropped = LockedFlag()
+        let offline = FakeHub([qwen: qwenRepo]) { path, _ in
+            guard isWeights(path) else { return nil }
+            if dropped.set() { throw Dropped(message: "fetch failed") }
+            return droppedAfter(2000)
+        }
+        await #expect(throws: Dropped.self) { try await makeModels(offline, directory: directory).download(qwenId) }
+        try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), Data(repeating: 1, count: weights.count))
+        let online = FakeHub([qwen: qwenRepo])
+
+        try await makeModels(online, directory: directory, hubCache: cache).download(qwenId)
+
+        #expect(weightRequests(online) == ["bytes=2000-"])
+        #expect(try Data(contentsOf: directory.appending(path: "\(qwenId)/model.safetensors")) == weights)
+    }
+
     @Test func `downloads a file whose cached copy doesn't match its hash, leaving the cache alone`() async throws {
         let corrupt = Data(repeating: 1, count: weights.count)
         try cacheBlob("mlx-community/Qwen3-4B-Instruct-2507-4bit", sha256Hex(weights), corrupt)

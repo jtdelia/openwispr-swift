@@ -62,6 +62,7 @@ public struct ModelManifest: Sendable, Equatable, Codable {
 
 private let manifestName = "manifest.json"
 private let partSuffix = ".part"
+private let cacheCopySuffix = ".cached"
 private let maxAttempts = 5
 private let progressIntervalMs = 250.0
 private let skipped = #"(^|/)(\.gitattributes|[^/]*\.md|[^/]*\.(png|jpe?g|gif|webp|svg))$"#
@@ -252,11 +253,7 @@ public actor ModelDownloads {
         // Files are only renamed into place after verification.
         if sizeOf(target) == file.size { return }
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if copyFromCache(file, part: part, job: job) {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.moveItem(at: part, to: target)
-            return
-        }
+        if copyFromCache(file, to: target, part: part, job: job) { return }
         var attempt = 1
         while true {
             let before = sizeOf(part) ?? 0
@@ -281,19 +278,23 @@ public actor ModelDownloads {
         try FileManager.default.moveItem(at: part, to: target)
     }
 
-    /// Copies `file` from the Hugging Face cache into `part`, replacing a partial download, when a verified
-    /// copy is there. On APFS the copy is a clone, so it takes no extra space.
-    private func copyFromCache(_ file: HubFile, part: URL, job: Job) -> Bool {
-        guard !job.cancelled, let blob = hubCache?.blob(for: file), matches(blob, file) else { return false }
-        let before = sizeOf(part) ?? 0
-        try? FileManager.default.removeItem(at: part)
-        guard (try? FileManager.default.copyItem(at: blob, to: part)) != nil, sizeOf(part) == file.size else {
+    /// Installs `file` from the Hugging Face cache, replacing a partial download only once a copy is verified.
+    /// On APFS the copy is a clone, so it takes no extra space.
+    private func copyFromCache(_ file: HubFile, to target: URL, part: URL, job: Job) -> Bool {
+        let copy = URL(filePath: target.path + cacheCopySuffix)
+        for blob in hubCache?.blobs(for: file) ?? [] {
+            if job.cancelled || Task.isCancelled { return false }
+            try? FileManager.default.removeItem(at: copy)
+            guard (try? FileManager.default.copyItem(at: blob, to: copy)) != nil, matches(copy, file) else { continue }
+            let before = sizeOf(part) ?? 0
+            try? FileManager.default.removeItem(at: target)
+            guard (try? FileManager.default.moveItem(at: copy, to: target)) != nil else { break }
             try? FileManager.default.removeItem(at: part)
-            job.bytesDone -= before
-            return false
+            progress(job, file.size - before)
+            return true
         }
-        progress(job, file.size - before)
-        return true
+        try? FileManager.default.removeItem(at: copy)
+        return false
     }
 
     /// Appends the rest of `file` to `part`, which already holds `have` bytes, failing when no data arrives for `stallTimeout`.
