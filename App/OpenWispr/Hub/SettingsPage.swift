@@ -93,6 +93,13 @@ struct SettingsPage: View {
                     Text("Your name")
                     Text("Helps with spelling and sign-offs.")
                 }
+                Picker("Appearance", selection: Binding(get: { settings.appearance }, set: { value in model.updateSettings { $0.appearance = value } })) {
+                    ForEach(Appearance.allCases, id: \.self) { appearance in
+                        Text(appearance.label).tag(appearance)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("picker-appearance")
                 Toggle("Sound effects", isOn: binding(\.sounds))
                 Toggle(isOn: binding(\.showFlowBar)) {
                     Text("Show Flow bar while idle")

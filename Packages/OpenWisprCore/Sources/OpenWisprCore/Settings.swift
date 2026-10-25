@@ -1,5 +1,18 @@
 import Foundation
 
+/// The app's color scheme; `system` follows macOS.
+public enum Appearance: String, CaseIterable, Sendable, Codable {
+    case system, light, dark
+
+    public var label: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}
+
 public struct Settings: Sendable, Equatable, Codable {
     public struct Cleanup: Sendable, Equatable, Codable {
         public var enabled: Bool
@@ -20,6 +33,7 @@ public struct Settings: Sendable, Equatable, Codable {
     public var showFlowBar = true
     public var launchAtLogin = false
     public var userName = ""
+    public var appearance: Appearance = .system
 
     public init() {}
 
@@ -31,7 +45,7 @@ public struct Settings: Sendable, Equatable, Codable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case speechToText, chat, language, cleanup, shortcuts, styles, microphoneId, sounds, restoreClipboard, showFlowBar, launchAtLogin, userName
+        case speechToText, chat, language, cleanup, shortcuts, styles, microphoneId, sounds, restoreClipboard, showFlowBar, launchAtLogin, userName, appearance
         /// Before Models, each role was an Endpoint config, with Cleanup's living under `cleanup`.
         case transcription
     }
@@ -66,6 +80,7 @@ public struct Settings: Sendable, Equatable, Codable {
         showFlowBar = value(Bool.self, .showFlowBar) ?? true
         launchAtLogin = value(Bool.self, .launchAtLogin) ?? false
         userName = value(String.self, .userName) ?? ""
+        appearance = value(Appearance.self, .appearance) ?? .system
 
         let isCustom = { (config: EndpointConfig) in config.baseUrl != Self.legacyBaseUrl || !config.apiKey.isEmpty }
         var legacySpeech: EndpointConfig?
@@ -108,6 +123,7 @@ public struct Settings: Sendable, Equatable, Codable {
         try container.encode(showFlowBar, forKey: .showFlowBar)
         try container.encode(launchAtLogin, forKey: .launchAtLogin)
         try container.encode(userName, forKey: .userName)
+        try container.encode(appearance, forKey: .appearance)
     }
 }
 

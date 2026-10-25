@@ -118,6 +118,23 @@ final class OpenWisprUITests: XCTestCase {
         reveal(app.staticTexts["Push to talk (hold)"])
     }
 
+    func testAppearanceSwitchesToDarkAndBack() {
+        open("Settings")
+        let picker = app.radioGroups["picker-appearance"].firstMatch
+        reveal(picker)
+        for _ in 0..<15 where !picker.isHittable {
+            app.windows.firstMatch.scroll(byDeltaX: 0, deltaY: -200)
+        }
+        // A segmented picker marks its chosen segment with a value of 1.
+        func chosen(_ label: String) -> Bool { picker.radioButtons[label].value as? Int == 1 }
+        XCTAssertTrue(chosen("System"))
+        picker.radioButtons["Dark"].click()
+        XCTAssertTrue(chosen("Dark"))
+        picker.radioButtons["Light"].click()
+        XCTAssertTrue(chosen("Light"))
+        XCTAssertFalse(chosen("Dark"))
+    }
+
     func testMeetingIsTranscribedAttributedAndSummarized() {
         open("Notetaker")
         let newNote = app.buttons["new-note"].firstMatch
