@@ -20,7 +20,7 @@ final class OpenWisprUITests: XCTestCase {
     private var window: XCUIElement { app.windows["OpenWispr"].firstMatch }
 
     private func open(_ page: String) {
-        let item = app.staticTexts["nav-\(page.lowercased())"].firstMatch
+        let item = app.descendants(matching: .any)["nav-\(page.lowercased())"].firstMatch
         XCTAssertTrue(item.waitForExistence(timeout: 5))
         item.click()
     }
@@ -107,6 +107,25 @@ final class OpenWisprUITests: XCTestCase {
         XCTAssertTrue(excited.isSelected)
         XCTAssertTrue(app.buttons["style-email-formal"].exists)
         XCTAssertFalse(app.buttons["style-email-formal"].isSelected)
+    }
+
+    func testPinnedSettingsIsSelectedByClickAndArrowKeys() {
+        let settings = app.buttons["nav-settings"].firstMatch
+        let settingsPage = app.staticTexts["Transcribes as en-US. The first dictation in a new language downloads Apple’s language files."].firstMatch
+        let stylePage = app.buttons["style-email-formal"].firstMatch
+        open("Settings")
+        XCTAssertTrue(settingsPage.waitForExistence(timeout: 5))
+        XCTAssertTrue(settings.isSelected)
+
+        app.typeKey(.upArrow, modifierFlags: [])
+        XCTAssertTrue(stylePage.waitForExistence(timeout: 5))
+        XCTAssertFalse(settings.isSelected)
+        app.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(settingsPage.waitForExistence(timeout: 5))
+        XCTAssertTrue(settings.isSelected)
+        app.typeKey(.upArrow, modifierFlags: [])
+        XCTAssertTrue(stylePage.waitForExistence(timeout: 5))
+        XCTAssertFalse(settings.isSelected)
     }
 
     func testSettingsShowsBuiltInModelsAndAppleStatus() {
