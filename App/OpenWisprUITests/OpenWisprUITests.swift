@@ -25,10 +25,19 @@ final class OpenWisprUITests: XCTestCase {
         item.click()
     }
 
-    /// Settings is a lazy Form: rows below the fold join the accessibility tree only once scrolled into view.
+    /// Opens the Settings window from the hub's sidebar and selects `pane` in its own sidebar.
+    private func openSettings(_ pane: String) {
+        open("Settings")
+        let item = app.descendants(matching: .any)["settings-\(pane)"].firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 5))
+        item.click()
+    }
+
+    /// Settings panes are lazy Forms: rows below the fold join the accessibility tree only once scrolled into view.
     private func reveal(_ element: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let pane = app.descendants(matching: .any)["settings-pane"].firstMatch
         for _ in 0..<15 where !element.exists {
-            window.scroll(byDeltaX: 0, deltaY: -200)
+            pane.scroll(byDeltaX: 0, deltaY: -200)
         }
         XCTAssertTrue(element.exists, file: file, line: line)
     }
@@ -109,41 +118,33 @@ final class OpenWisprUITests: XCTestCase {
         XCTAssertFalse(app.buttons["style-email-formal"].isSelected)
     }
 
-    func testPinnedSettingsIsSelectedByClickAndArrowKeys() {
-        let settings = app.buttons["nav-settings"].firstMatch
-        let settingsPage = app.staticTexts["Transcribes as en-US. The first dictation in a new language downloads Apple’s language files."].firstMatch
-        let stylePage = app.buttons["style-email-formal"].firstMatch
-        open("Settings")
-        XCTAssertTrue(settingsPage.waitForExistence(timeout: 5))
-        XCTAssertTrue(settings.isSelected)
+    func testSettingsRowOpensTheSettingsWindowOnItsLastPane() {
+        openSettings("permissions")
+        XCTAssertTrue(app.staticTexts["Accessibility"].waitForExistence(timeout: 5))
+        XCTAssertTrue(window.exists, "The hub stays open behind the Settings window")
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertFalse(app.staticTexts["Accessibility"].waitForExistence(timeout: 2))
 
-        app.typeKey(.upArrow, modifierFlags: [])
-        XCTAssertTrue(stylePage.waitForExistence(timeout: 5))
-        XCTAssertFalse(settings.isSelected)
-        app.typeKey(.downArrow, modifierFlags: [])
-        XCTAssertTrue(settingsPage.waitForExistence(timeout: 5))
-        XCTAssertTrue(settings.isSelected)
-        app.typeKey(.upArrow, modifierFlags: [])
-        XCTAssertTrue(stylePage.waitForExistence(timeout: 5))
-        XCTAssertFalse(settings.isSelected)
+        open("Settings")
+        XCTAssertTrue(app.staticTexts["Accessibility"].waitForExistence(timeout: 5))
     }
 
     func testSettingsShowsBuiltInModelsAndAppleStatus() {
-        open("Settings")
+        openSettings("speechToText")
         XCTAssertTrue(app.staticTexts["Transcribes as en-US. The first dictation in a new language downloads Apple’s language files."].waitForExistence(timeout: 10))
-        reveal(app.staticTexts["Reads up to 4096 tokens per request on this Mac."])
-        reveal(app.staticTexts["Built-in models"])
+        openSettings("languageModels")
+        XCTAssertTrue(app.staticTexts["Reads up to 4096 tokens per request on this Mac."].waitForExistence(timeout: 10))
+        openSettings("modelLibrary")
+        XCTAssertTrue(app.staticTexts["Built-in models"].waitForExistence(timeout: 5))
         reveal(app.staticTexts["Add from Hugging Face"])
-        reveal(app.staticTexts["Push to talk (hold)"])
+        openSettings("shortcuts")
+        XCTAssertTrue(app.staticTexts["Push to talk (hold)"].waitForExistence(timeout: 5))
     }
 
     func testAppearanceSwitchesToDarkAndBack() {
-        open("Settings")
+        openSettings("general")
         let picker = app.radioGroups["picker-appearance"].firstMatch
         reveal(picker)
-        for _ in 0..<15 where !picker.isHittable {
-            app.windows.firstMatch.scroll(byDeltaX: 0, deltaY: -200)
-        }
         // A segmented picker marks its chosen segment with a value of 1.
         func chosen(_ label: String) -> Bool { picker.radioButtons[label].value as? Int == 1 }
         let applied = app.staticTexts["applied-color-scheme"].firstMatch
