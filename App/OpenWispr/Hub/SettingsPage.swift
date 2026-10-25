@@ -100,6 +100,7 @@ struct SettingsPage: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("picker-appearance")
+                if model.isUITesting { AppliedColorScheme() }
                 Toggle("Sound effects", isOn: binding(\.sounds))
                 Toggle(isOn: binding(\.showFlowBar)) {
                     Text("Show Flow bar while idle")
@@ -471,6 +472,15 @@ private struct ShortcutRow: View {
                 }
             }
         }
+    }
+}
+
+/// The color scheme SwiftUI is drawing with, for UI tests to check the Appearance setting took effect.
+private struct AppliedColorScheme: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Text(colorScheme == .dark ? "dark" : "light").accessibilityIdentifier("applied-color-scheme")
     }
 }
 
