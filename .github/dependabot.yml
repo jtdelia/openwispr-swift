@@ -6,6 +6,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    ignore:
+      # The action is released as github-v* tags, which Dependabot cannot parse, so it would
+      # move the pin to the opencode CLI's v* tags instead. Update it by hand.
+      - dependency-name: anomalyco/opencode/github
     groups:
       actions:
         patterns: ["*"]

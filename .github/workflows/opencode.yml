@@ -49,14 +49,14 @@ jobs:
       - name: Run with the best free model
         id: primary
         continue-on-error: true
-        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        uses: anomalyco/opencode/github@17b79f4e0c16dcff200b0417567ed22aeb2d7166 # github-v1.2.28
         with:
           model: ${{ steps.model.outputs.primary }}
           share: false
 
       - name: Retry with the next free model
         if: steps.primary.outcome == 'failure' && steps.model.outputs.fallback != ''
-        uses: anomalyco/opencode/github@e3c4eb242585dcd77be1a867391b7c25fd47ce52 # v1.19.3
+        uses: anomalyco/opencode/github@17b79f4e0c16dcff200b0417567ed22aeb2d7166 # github-v1.2.28
         with:
           model: ${{ steps.model.outputs.fallback }}
           share: false
