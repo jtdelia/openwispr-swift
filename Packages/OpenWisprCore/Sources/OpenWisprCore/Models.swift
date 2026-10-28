@@ -115,6 +115,11 @@ public final class Models {
     @ObservationIgnored private let settings: () -> Settings
     @ObservationIgnored private let engines: any BuiltInEngines
     @ObservationIgnored private let endpoints: EndpointClient
+    @ObservationIgnored private let host: HostEnvironment
+    @ObservationIgnored private let aws: AWSCredentialResolver
+    @ObservationIgnored private let bedrock: BedrockClient
+    @ObservationIgnored private let google: GoogleCredentialResolver
+    @ObservationIgnored private let googleCloud: GoogleCloudClient
     @ObservationIgnored private let http: any HTTPClient
     @ObservationIgnored private let physicalMemoryBytes: Int64
     @ObservationIgnored private let hubCache: HubCache?
@@ -132,12 +137,17 @@ public final class Models {
     public init(
         settings: @escaping () -> Settings, engines: any BuiltInEngines, http: any HTTPClient, modelsDirectory: URL,
         hubCache: HubCache? = nil, physicalMemoryBytes: Int64 = Int64(ProcessInfo.processInfo.physicalMemory),
-        retryDelay: Duration = .seconds(2)
+        retryDelay: Duration = .seconds(2), host: HostEnvironment = HostEnvironment()
     ) {
         self.settings = settings
         self.engines = engines
         self.http = http
         endpoints = EndpointClient(http: http)
+        self.host = host
+        aws = AWSCredentialResolver(host: host)
+        bedrock = BedrockClient(http: http, credentials: aws)
+        google = GoogleCredentialResolver(host: host, http: http)
+        googleCloud = GoogleCloudClient(endpoints: endpoints, credentials: google)
         self.physicalMemoryBytes = physicalMemoryBytes
         self.hubCache = hubCache
         downloads = ModelDownloads(
@@ -249,11 +259,20 @@ public final class Models {
 
     /// Whether `role` can be used right now. A chat Endpoint needs no key, since local servers don't ask
     /// for one; a cloud speech-to-text Endpoint does, so a fresh install asks for one before recording.
+    /// Bedrock and Google Cloud credentials are only checked by a request.
     public func availability(_ role: ModelRole) -> Availability {
-        guard let config = settings().resolvedEndpoint(role) else {
+        switch settings()[role] {
+        case .builtIn:
             if case let .unavailable(reason) = builtIn(role) { return .unavailable(reason) }
             return .available
+        case let .bedrock(config):
+            return cloudAvailability(role, provider: "Amazon Bedrock", model: config.model)
+        case let .googleCloud(config):
+            return cloudAvailability(role, provider: "Google Cloud", model: config.model)
+        case .endpoint:
+            break
         }
+        guard let config = settings().resolvedEndpoint(role) else { return .unavailable("Set up a \(role.name) model in Settings") }
         switch role {
         case .speechToText:
             if config.baseUrl.trimmed.isEmpty || config.model.trimmed.isEmpty { return .unavailable("Set up a speech-to-text model in Settings") }
@@ -262,6 +281,13 @@ public final class Models {
         case .chat:
             if config.baseUrl.trimmed.isEmpty || config.model.trimmed.isEmpty { return .unavailable("Set up a chat model in Settings") }
             return .available
+        }
+    }
+
+    private func cloudAvailability(_ role: ModelRole, provider: String, model: String) -> Availability {
+        switch role {
+        case .speechToText: .unavailable("\(provider) only serves chat models here. Choose another speech-to-text model in Settings")
+        case .chat: model.trimmed.isEmpty ? .unavailable("Set up a chat model in Settings") : .available
         }
     }
 
@@ -323,7 +349,7 @@ public final class Models {
     public func complete(_ messages: [ChatMessage], label: String = "Cleanup", timeout: TimeInterval = EndpointClient.timeout, maxTokens: Int = defaultMaxTokens) async throws -> String {
         switch builtIn(.chat) {
         case nil:
-            return try await endpoints.complete(try endpoint(.chat), messages: messages, label: label, timeout: timeout)
+            return try await completeRemotely(messages, label: label, timeout: timeout)
         case let .unavailable(reason):
             throw ModelError.unavailable(reason)
         case let .model(model):
@@ -343,14 +369,18 @@ public final class Models {
         }
     }
 
-    /// Sends the selected Endpoint for `role` a tiny real request.
+    /// Sends the selected Endpoint, Bedrock or Google Cloud model for `role` a tiny real request, reading
+    /// the shell's variables and the credentials again first.
     public func testEndpoint(_ role: ModelRole) async -> EndpointTestResult {
+        await host.reload()
+        await aws.reset()
+        await google.reset()
         do {
             switch role {
             case .speechToText:
                 _ = try await endpoints.transcribe(try endpoint(role), language: "", wav: silentWav(durationMs: 500), prompt: "")
             case .chat:
-                _ = try await endpoints.complete(try endpoint(role), messages: [.user("Reply with OK.")], label: "Chat", timeout: testTimeout)
+                _ = try await completeRemotely([.user("Reply with OK.")], label: "Chat", timeout: testTimeout)
             }
             return .ok
         } catch {
@@ -358,8 +388,40 @@ public final class Models {
         }
     }
 
+    /// The models the selected Endpoint for `role` offers; empty when it doesn't list them.
+    public func endpointModels(_ role: ModelRole) async -> [String] {
+        guard let config = settings().resolvedEndpoint(role), !config.baseUrl.trimmed.isEmpty else { return [] }
+        return (try? await endpoints.models(config)) ?? []
+    }
+
+    /// Profiles in the AWS CLI's config and credentials files.
+    public func awsProfiles() async -> [String] {
+        await aws.profiles()
+    }
+
+    /// The region Bedrock requests go to, which an empty region setting leaves to the environment and profile.
+    public func bedrockRegion(_ config: BedrockConfig) async -> String {
+        await aws.region(config)
+    }
+
+    /// The project Google Cloud requests go to, which an empty project setting leaves to the environment and gcloud.
+    public func googleCloudProject(_ config: GoogleCloudConfig) async -> String? {
+        await google.project(config)
+    }
+
+    private func completeRemotely(_ messages: [ChatMessage], label: String, timeout: TimeInterval) async throws -> String {
+        switch settings().chat {
+        case let .bedrock(config):
+            try await bedrock.complete(config, messages: messages, label: label, timeout: timeout)
+        case let .googleCloud(config):
+            try await googleCloud.complete(config, messages: messages, label: label, timeout: timeout)
+        case .builtIn, .endpoint:
+            try await endpoints.complete(try endpoint(.chat), messages: messages, label: label, timeout: timeout)
+        }
+    }
+
     private func endpoint(_ role: ModelRole) throws -> EndpointConfig {
-        guard let config = settings().resolvedEndpoint(role) else { throw AppError(builtInUnavailable) }
+        guard let config = settings().resolvedEndpoint(role) else { throw AppError(availability(role).reason ?? builtInUnavailable) }
         return config
     }
 

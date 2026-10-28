@@ -141,6 +141,46 @@ final class OpenWisprUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Push to talk (hold)"].waitForExistence(timeout: 5))
     }
 
+    func testModelPickersOfferCloudProvidersAndCustomServers() {
+        openSettings("languageModels")
+        let chat = app.popUpButtons["picker-chat"].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 5))
+        func choose(_ item: String) {
+            chat.click()
+            let menuItem = chat.menuItems[item].firstMatch
+            XCTAssertTrue(menuItem.waitForExistence(timeout: 5), item)
+            menuItem.click()
+        }
+
+        chat.click()
+        for item in ["OpenAI", "Ollama (local)", "LM Studio (local)", "Amazon Bedrock", "Google Cloud Agent Platform", "Custom OpenAI-compatible server"] {
+            XCTAssertTrue(chat.menuItems[item].exists, item)
+        }
+        XCTAssertFalse(chat.menuItems["Groq"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+
+        choose("Amazon Bedrock")
+        XCTAssertTrue(app.staticTexts["Credentials"].waitForExistence(timeout: 5))
+        reveal(app.staticTexts["Test connection"])
+
+        choose("Google Cloud Agent Platform")
+        XCTAssertTrue(app.staticTexts["Project"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Location"].exists)
+
+        choose("Custom OpenAI-compatible server")
+        XCTAssertTrue(app.staticTexts["Base URL"].waitForExistence(timeout: 5))
+        XCTAssertEqual(chat.value as? String, "Custom OpenAI-compatible server")
+
+        openSettings("speechToText")
+        let speech = app.popUpButtons["picker-speechToText"].firstMatch
+        XCTAssertTrue(speech.waitForExistence(timeout: 5))
+        speech.click()
+        XCTAssertTrue(speech.menuItems["Speaches / faster-whisper (local)"].waitForExistence(timeout: 5))
+        XCTAssertFalse(speech.menuItems["Amazon Bedrock"].exists)
+        XCTAssertFalse(speech.menuItems["Ollama (local)"].exists)
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
     func testAppearanceSwitchesToDarkAndBack() {
         openSettings("general")
         let picker = app.radioGroups["picker-appearance"].firstMatch

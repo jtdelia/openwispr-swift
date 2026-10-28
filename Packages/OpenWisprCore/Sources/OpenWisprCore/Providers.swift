@@ -60,7 +60,7 @@ public struct KnownSpeakers: Sendable, Equatable {
     }
 }
 
-/// OpenAI-compatible endpoints (OpenAI, Groq, whisper.cpp server, LocalAI, Speaches, …).
+/// OpenAI-compatible endpoints (OpenAI, Ollama, LM Studio, llama.cpp server, LocalAI, Speaches, …).
 public struct EndpointClient: Sendable {
     public static let timeout: TimeInterval = 60
 
@@ -119,6 +119,17 @@ public struct EndpointClient: Sendable {
         return json?.choices?.first?.message?.content ?? ""
     }
 
+    /// `/models`: the model ids the server offers, such as those installed in Ollama or loaded in LM Studio.
+    public func models(_ config: EndpointConfig) async throws -> [String] {
+        var request = URLRequest(url: try url(config, "/models"), timeoutInterval: Self.listTimeout)
+        authorize(&request, config)
+        let data = try await send(request, what: "Listing models")
+        let json = try? JSONDecoder().decode(ModelList.self, from: data)
+        return (json?.data ?? []).compactMap(\.id).sorted()
+    }
+
+    private static let listTimeout: TimeInterval = 10
+
     private func url(_ config: EndpointConfig, _ path: String) throws -> URL {
         let base = config.baseUrl.replacing(pattern: "/+$", with: "")
         guard let url = URL(string: base + path), url.scheme != nil else { throw AppError("Invalid base URL: \(config.baseUrl)") }
@@ -129,7 +140,9 @@ public struct EndpointClient: Sendable {
         let (data, response) = try await http.data(for: request)
         guard (200..<300).contains(response.statusCode) else {
             let body = String(decoding: data, as: UTF8.self)
-            let detail = (try? JSONDecoder().decode(ErrorBody.self, from: data))?.error?.message ?? String(body.prefix(300))
+            // Google Cloud wraps the error in an array.
+            let error = (try? JSONDecoder().decode(ErrorBody.self, from: data)) ?? (try? JSONDecoder().decode([ErrorBody].self, from: data))?.first
+            let detail = error?.error?.message ?? String(body.prefix(300))
             throw AppError("\(what) failed (\(response.statusCode)): \(detail)")
         }
         return data
@@ -152,6 +165,11 @@ public struct EndpointClient: Sendable {
         }
 
         var choices: [Choice]?
+    }
+
+    private struct ModelList: Decodable {
+        struct Model: Decodable { var id: String? }
+        var data: [Model]?
     }
 }
 
