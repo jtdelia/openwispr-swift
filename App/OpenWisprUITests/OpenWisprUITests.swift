@@ -170,6 +170,12 @@ final class OpenWisprUITests: XCTestCase {
         choose("Custom OpenAI-compatible server")
         XCTAssertTrue(app.staticTexts["Base URL"].waitForExistence(timeout: 5))
         XCTAssertEqual(chat.value as? String, "Custom OpenAI-compatible server")
+        app.buttons["Test"].firstMatch.click()
+        let unset = app.staticTexts["Enter the server's base URL, like http://localhost:8080/v1"].firstMatch
+        XCTAssertTrue(unset.waitForExistence(timeout: 10))
+        choose("Amazon Bedrock")
+        XCTAssertTrue(app.staticTexts["Credentials"].waitForExistence(timeout: 5))
+        XCTAssertFalse(unset.exists, "A test result doesn't outlive the selection it tested")
 
         openSettings("speechToText")
         let speech = app.popUpButtons["picker-speechToText"].firstMatch

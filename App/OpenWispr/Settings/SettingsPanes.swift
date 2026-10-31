@@ -625,6 +625,7 @@ private struct EndpointTest: View {
             Text(title)
             Text("Sends a tiny request to check it answers.")
         }
+        .onChange(of: model.store.settings[role]) { result = nil }
         if case let .failed(error)? = result { ErrorText(error) }
     }
 }

@@ -397,6 +397,11 @@ struct CompatibleServerTests {
         #expect(await models.endpointModels(.speechToText).isEmpty)
     }
 
+    @Test func `asks for a base URL when a custom server has none`() async throws {
+        let models = await makeModels(settings: chatSettings(.endpoint(EndpointConfig(baseUrl: "", model: "", apiKey: ""))), directory: directory)
+        #expect(await models.testEndpoint(.chat) == .failed("Enter the server's base URL, like http://localhost:8080/v1"))
+    }
+
     @Test(arguments: [
         ("http://localhost:11434/v1", true), ("http://127.0.0.1:1234/v1", true), ("http://[::1]:8000/v1", true),
         ("http://gpu-box.local:8080/v1", true), ("http://192.168.1.20:8000/v1", true), ("http://10.0.0.5/v1", true),

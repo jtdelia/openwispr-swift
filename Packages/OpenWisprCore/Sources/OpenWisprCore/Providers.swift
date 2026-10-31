@@ -131,6 +131,7 @@ public struct EndpointClient: Sendable {
     private static let listTimeout: TimeInterval = 10
 
     private func url(_ config: EndpointConfig, _ path: String) throws -> URL {
+        if config.baseUrl.trimmed.isEmpty { throw AppError("Enter the server's base URL, like http://localhost:8080/v1") }
         let base = config.baseUrl.replacing(pattern: "/+$", with: "")
         guard let url = URL(string: base + path), url.scheme != nil else { throw AppError("Invalid base URL: \(config.baseUrl)") }
         return url
