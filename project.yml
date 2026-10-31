@@ -43,6 +43,9 @@ targets:
         NSSpeechRecognitionUsageDescription: OpenWispr uses Apple’s on-device speech recognition to transcribe your dictations and meetings.
         NSAudioCaptureUsageDescription: OpenWispr records the call audio of meetings you ask it to take notes in.
         NSAppleEventsUsageDescription: OpenWispr pastes your dictations into the app you are using.
+        NSLocalNetworkUsageDescription: OpenWispr connects to model servers you run on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.github.jtdelia.openwispr-swift

@@ -139,6 +139,12 @@ extension ModelSelection {
             let newBaseUrl = baseUrl ?? base.baseUrl
             let keptKey = sameOrigin(newBaseUrl, base.baseUrl) ? base.apiKey : ""
             return .endpoint(EndpointConfig(baseUrl: newBaseUrl, model: model ?? base.model, apiKey: apiKey ?? keptKey))
+        case let .bedrock(model, region, profile):
+            let base = bedrock ?? BedrockConfig()
+            return .bedrock(BedrockConfig(model: model ?? base.model, region: region ?? base.region, profile: profile ?? base.profile))
+        case let .googleCloud(model, project, location):
+            let base = googleCloud ?? GoogleCloudConfig()
+            return .googleCloud(GoogleCloudConfig(model: model ?? base.model, project: project ?? base.project, location: location ?? base.location))
         }
     }
 }

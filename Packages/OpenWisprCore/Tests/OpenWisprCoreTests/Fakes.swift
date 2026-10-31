@@ -24,6 +24,8 @@ struct FakeRequest: Sendable {
     var range: String?
     var body: Data?
     var authorization: String?
+    var method = "GET"
+    var headers: [String: String] = [:]
 
     /// The values of a multipart form field.
     func form(_ name: String) -> [String] {
@@ -108,7 +110,8 @@ final class FakeHub: HTTPClient {
         let url = request.url!
         let fake = FakeRequest(
             url: url.absoluteString, range: request.value(forHTTPHeaderField: "Range"), body: request.httpBody,
-            authorization: request.value(forHTTPHeaderField: "Authorization")
+            authorization: request.value(forHTTPHeaderField: "Authorization"), method: request.httpMethod ?? "GET",
+            headers: request.allHTTPHeaderFields ?? [:]
         )
         log.withLock { $0.append(fake) }
         try Task.checkCancellation()
@@ -290,11 +293,12 @@ final class SettingsBox {
 @MainActor
 func makeModels(
     _ http: any HTTPClient = FakeHub(), engines: FakeEngines = FakeEngines(), settings: SettingsBox = SettingsBox(),
-    directory: URL, hubCache: HubCache? = nil, physicalMemoryBytes: Int64 = 32_000_000_000
+    directory: URL, hubCache: HubCache? = nil, physicalMemoryBytes: Int64 = 32_000_000_000, host: HostEnvironment? = nil
 ) async -> Models {
     let models = Models(
         settings: { settings.settings }, engines: engines, http: http, modelsDirectory: directory,
-        hubCache: hubCache, physicalMemoryBytes: physicalMemoryBytes, retryDelay: .zero
+        hubCache: hubCache, physicalMemoryBytes: physicalMemoryBytes, retryDelay: .zero,
+        host: host ?? HostEnvironment(home: directory, variables: [:], readsLoginShell: false)
     )
     await models.refresh()
     return models

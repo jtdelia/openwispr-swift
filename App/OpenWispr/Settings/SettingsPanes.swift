@@ -5,23 +5,25 @@ import SwiftUI
 private struct KnownEndpoint: Hashable {
     let label: String
     let baseUrl: String
-    let speechToTextModel: String
-    let chatModel: String
+    /// Nil when the server has no model for the role; empty to pick from the models it lists.
+    let speechToTextModel: String?
+    let chatModel: String?
 
     static let all = [
-        KnownEndpoint(label: "OpenAI", baseUrl: "https://api.openai.com/v1", speechToTextModel: "gpt-4o-mini-transcribe", chatModel: "gpt-4.1-mini"),
-        KnownEndpoint(label: "Groq", baseUrl: "https://api.groq.com/openai/v1", speechToTextModel: "whisper-large-v3-turbo", chatModel: "llama-3.3-70b-versatile"),
+        KnownEndpoint(label: "OpenAI", baseUrl: "https://api.openai.com/v1", speechToTextModel: "gpt-4o-mini-transcribe", chatModel: "gpt-6-luna"),
+        KnownEndpoint(label: "Ollama (local)", baseUrl: "http://localhost:11434/v1", speechToTextModel: nil, chatModel: ""),
+        KnownEndpoint(label: "LM Studio (local)", baseUrl: "http://localhost:1234/v1", speechToTextModel: nil, chatModel: ""),
         KnownEndpoint(
-            label: "Local (Speaches / faster-whisper)", baseUrl: "http://localhost:8000/v1",
-            speechToTextModel: "Systran/faster-distil-whisper-large-v3", chatModel: ""
+            label: "Speaches / faster-whisper (local)", baseUrl: "http://localhost:8000/v1",
+            speechToTextModel: "Systran/faster-distil-whisper-large-v3", chatModel: nil
         ),
     ]
 
     static func offered(for role: ModelRole) -> [KnownEndpoint] {
-        role == .chat ? all.filter { !$0.chatModel.isEmpty } : all
+        all.filter { $0.model(for: role) != nil }
     }
 
-    func model(for role: ModelRole) -> String { role == .chat ? chatModel : speechToTextModel }
+    func model(for role: ModelRole) -> String? { role == .chat ? chatModel : speechToTextModel }
 }
 
 /// What the model picker shows as selected.
@@ -29,6 +31,8 @@ private enum ModelChoice: Hashable {
     case apple
     case downloaded(String)
     case endpoint(String)
+    case bedrock
+    case googleCloud
     case custom
 }
 
@@ -165,10 +169,16 @@ private struct ModelPicker: View {
             ForEach(options(selection)) { status in
                 Text("\(status.model.name) (on this Mac)").tag(ModelChoice.downloaded(status.model.id))
             }
+            Divider()
             ForEach(KnownEndpoint.offered(for: role), id: \.self) { endpoint in
                 Text(endpoint.label).tag(ModelChoice.endpoint(endpoint.label))
             }
-            Text("Custom").tag(ModelChoice.custom).selectionDisabled()
+            if role == .chat {
+                Text("Amazon Bedrock").tag(ModelChoice.bedrock)
+                Text("Google Cloud Agent Platform").tag(ModelChoice.googleCloud)
+            }
+            Divider()
+            Text("Custom OpenAI-compatible server").tag(ModelChoice.custom)
         }
         .accessibilityIdentifier("picker-\(role.rawValue)")
     }
@@ -185,6 +195,8 @@ private struct ModelPicker: View {
         switch selection {
         case let .builtIn(id): id == appleModelId ? .apple : .downloaded(id)
         case let .endpoint(config): KnownEndpoint.offered(for: role).first { $0.baseUrl == config.baseUrl }.map { .endpoint($0.label) } ?? .custom
+        case .bedrock: .bedrock
+        case .googleCloud: .googleCloud
         }
     }
 
@@ -194,8 +206,12 @@ private struct ModelPicker: View {
         case let .downloaded(id): model.updateSelection(role, .builtIn(modelId: id))
         case let .endpoint(label):
             guard let endpoint = KnownEndpoint.offered(for: role).first(where: { $0.label == label }) else { return }
-            model.updateSelection(role, .endpoint(baseUrl: endpoint.baseUrl, model: endpoint.model(for: role)))
-        case .custom: return
+            model.updateSelection(role, .endpoint(baseUrl: endpoint.baseUrl, model: endpoint.model(for: role) ?? ""))
+        case .bedrock: model.updateSelection(role, .bedrock())
+        case .googleCloud: model.updateSelection(role, .googleCloud())
+        case .custom:
+            guard self.choice(model.store.settings[role]) != .custom else { return }
+            model.updateSelection(role, .endpoint(baseUrl: "", model: ""))
         }
     }
 }
@@ -285,19 +301,157 @@ private struct SelectionSettings: View {
             }
         case let .endpoint(config):
             LabeledContent("Base URL") {
-                CommitTextField(value: config.baseUrl) { value in model.updateSelection(role, .endpoint(baseUrl: value)) }
+                CommitTextField(value: config.baseUrl, placeholder: "http://localhost:8080/v1") { value in
+                    model.updateSelection(role, .endpoint(baseUrl: value))
+                }
             }
-            LabeledContent("Model") {
-                CommitTextField(value: config.model) { value in model.updateSelection(role, .endpoint(model: value)) }
-            }
+            EndpointModelField(role: role, config: config)
             LabeledContent {
                 SecretField(hasValue: !config.apiKey.isEmpty) { value in model.updateSelection(role, .endpoint(apiKey: value)) }
             } label: {
                 Text("API key")
-                if let keyDescription { Text(keyDescription) }
+                if let description = keyDescription ?? (isLocalEndpoint(config.baseUrl) ? "Optional for servers on this Mac or your local network." : nil) {
+                    Text(description)
+                }
             }
             EndpointTest(role: role)
+        case let .bedrock(config):
+            BedrockSettings(config: config)
+            EndpointTest(role: role, title: "Test connection")
+        case let .googleCloud(config):
+            GoogleCloudSettings(config: config)
+            EndpointTest(role: role, title: "Test connection")
         }
+    }
+}
+
+/// The Endpoint's model, with a menu of the models the server lists, such as those installed in Ollama.
+private struct EndpointModelField: View {
+    @Environment(AppModel.self) private var model
+    let role: ModelRole
+    let config: EndpointConfig
+    @State private var offered: [String] = []
+
+    var body: some View {
+        LabeledContent {
+            HStack {
+                CommitTextField(value: config.model, placeholder: offered.isEmpty ? "" : "Choose a model") { value in
+                    model.updateSelection(role, .endpoint(model: value))
+                }
+                if !offered.isEmpty {
+                    ModelMenu(models: offered.map { (label: $0, id: $0) }, help: "Models on this server") { id in
+                        model.updateSelection(role, .endpoint(model: id))
+                    }
+                    .accessibilityIdentifier("endpoint-models-\(role.rawValue)")
+                }
+            }
+        } label: {
+            Text("Model")
+            if !offered.isEmpty { Text("\(offered.count) available on this server.") }
+        }
+        .task(id: [config.baseUrl, config.apiKey]) { offered = await model.models.endpointModels(role) }
+    }
+}
+
+/// A list button beside a model field that fills it in.
+private struct ModelMenu: View {
+    let models: [(label: String, id: String)]
+    let help: String
+    let select: (String) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(models, id: \.id) { entry in
+                Button(entry.label) { select(entry.id) }
+            }
+        } label: {
+            Image(systemName: "list.bullet")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(help)
+    }
+}
+
+/// Fast, inexpensive models that suit cleanup.
+private let suggestedBedrockModels = [
+    (label: "Claude Haiku 4.5", id: BedrockConfig.defaultModel),
+    (label: "GPT-6 Luna", id: "global.openai.gpt-6-luna"),
+]
+
+private struct BedrockSettings: View {
+    @Environment(AppModel.self) private var model
+    let config: BedrockConfig
+    @State private var profiles: [String] = []
+    @State private var region = ""
+
+    var body: some View {
+        LabeledContent {
+            HStack {
+                CommitTextField(value: config.model, placeholder: BedrockConfig.defaultModel) { value in model.updateSelection(.chat, .bedrock(model: value)) }
+                ModelMenu(models: suggestedBedrockModels, help: "Suggested models") { id in model.updateSelection(.chat, .bedrock(model: id)) }
+                    .accessibilityIdentifier("bedrock-models")
+            }
+        } label: {
+            Text("Model")
+            Text("A model or inference profile id, like Claude Haiku 4.5 or GPT-6 Luna.")
+        }
+        Picker(selection: Binding(get: { config.profile }, set: { value in model.updateSelection(.chat, .bedrock(profile: value)) })) {
+            Text("Environment, then AWS_PROFILE or default").tag("")
+            ForEach(profiles, id: \.self) { profile in Text(profile).tag(profile) }
+            if !config.profile.isEmpty && !profiles.contains(config.profile) { Text(config.profile).tag(config.profile) }
+        } label: {
+            Text("Credentials")
+            Text("AWS_BEARER_TOKEN_BEDROCK or AWS_ACCESS_KEY_ID from your shell, or an AWS CLI profile. For an SSO profile, run aws sso login first.")
+        }
+        .accessibilityIdentifier("picker-aws-profile")
+        LabeledContent {
+            CommitTextField(value: config.region, placeholder: region) { value in model.updateSelection(.chat, .bedrock(region: value)) }
+                .frame(width: 160)
+        } label: {
+            Text("Region")
+            Text("Leave empty to use AWS_REGION or the profile’s region.")
+        }
+        .task { profiles = await model.models.awsProfiles() }
+        .task(id: config.profile) { region = await model.models.bedrockRegion(BedrockConfig(model: "", profile: config.profile)) }
+    }
+}
+
+private struct GoogleCloudSettings: View {
+    @Environment(AppModel.self) private var model
+    let config: GoogleCloudConfig
+    @State private var project = ""
+
+    var body: some View {
+        LabeledContent {
+            CommitTextField(value: config.model, placeholder: GoogleCloudConfig.defaultModel) { value in
+                model.updateSelection(.chat, .googleCloud(model: value))
+            }
+        } label: {
+            Text("Model")
+            Text("A publisher and model, like google/gemini-3.5-flash.")
+        }
+        LabeledContent {
+            CommitTextField(value: config.project, placeholder: project.isEmpty ? "my-project" : project) { value in
+                model.updateSelection(.chat, .googleCloud(project: value))
+            }
+            .frame(width: 200)
+        } label: {
+            Text("Project")
+            Text("Leave empty to use GOOGLE_CLOUD_PROJECT or gcloud’s project.")
+        }
+        LabeledContent {
+            CommitTextField(value: config.location, placeholder: GoogleCloudConfig.defaultLocation) { value in
+                model.updateSelection(.chat, .googleCloud(location: value))
+            }
+            .frame(width: 160)
+        } label: {
+            Text("Location")
+            Text("global, or a region like us-central1.")
+        }
+        Text("Signs in with Application Default Credentials: run gcloud auth application-default login, or set GOOGLE_APPLICATION_CREDENTIALS to a service account key file.")
+            .font(.callout).foregroundStyle(.secondary)
+            .task { project = await model.models.googleCloudProject(GoogleCloudConfig()) ?? "" }
     }
 }
 
@@ -450,6 +604,7 @@ private struct AppleChatStatus: View {
 private struct EndpointTest: View {
     @Environment(AppModel.self) private var model
     let role: ModelRole
+    var title = "Test Endpoint"
     @State private var result: EndpointTestResult?
     @State private var testing = false
 
@@ -467,9 +622,10 @@ private struct EndpointTest: View {
                 .disabled(testing)
             }
         } label: {
-            Text("Test Endpoint")
+            Text(title)
             Text("Sends a tiny request to check it answers.")
         }
+        .onChange(of: model.store.settings[role]) { result = nil }
         if case let .failed(error)? = result { ErrorText(error) }
     }
 }

@@ -120,9 +120,12 @@ public enum AppCategory: String, Sendable, Codable {
     case email, ai, terminal, messaging, other
 }
 
-/// Self-hosted servers usually don't require an API key.
+/// Self-hosted servers, on this Mac or the local network, usually don't require an API key.
 public func isLocalEndpoint(_ baseUrl: String) -> Bool {
-    baseUrl.range(of: #"^https?://(localhost|127\.0\.0\.1|\[::1\])(:|/|$)"#, options: .regularExpression) != nil
+    guard let components = URLComponents(string: baseUrl.trimmed), ["http", "https"].contains(components.scheme?.lowercased()),
+          let host = components.host?.lowercased() else { return false }
+    if ["localhost", "::1", "[::1]"].contains(host) || host.hasSuffix(".local") { return true }
+    return host.matches(#"^(127|10)\.\d+\.\d+\.\d+$|^192\.168\.\d+\.\d+$|^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$"#)
 }
 
 public enum ModelRole: String, CaseIterable, Sendable, Codable {
@@ -158,6 +161,58 @@ public struct EndpointConfig: Sendable, Equatable, Codable {
     }
 }
 
+/// A chat model on Amazon Bedrock. Credentials come from the environment or an AWS CLI profile, never from settings.
+public struct BedrockConfig: Sendable, Equatable, Codable {
+    public static let defaultModel = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+    /// A model or inference profile id or ARN.
+    public var model: String
+    /// Empty for AWS_REGION, then the profile's region.
+    public var region: String
+    /// An AWS CLI profile; empty for the AWS_* environment variables, then AWS_PROFILE or `default`.
+    public var profile: String
+
+    public init(model: String = defaultModel, region: String = "", profile: String = "") {
+        self.model = model
+        self.region = region
+        self.profile = profile
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+        region = try container.decodeIfPresent(String.self, forKey: .region) ?? ""
+        profile = try container.decodeIfPresent(String.self, forKey: .profile) ?? ""
+    }
+}
+
+/// A chat model on Google Cloud's Gemini Enterprise Agent Platform (formerly Vertex AI), signed in with
+/// Application Default Credentials.
+public struct GoogleCloudConfig: Sendable, Equatable, Codable {
+    public static let defaultModel = "google/gemini-3.5-flash"
+    public static let defaultLocation = "global"
+
+    /// A publisher and model, like `google/gemini-3.5-flash`.
+    public var model: String
+    /// Empty for GOOGLE_CLOUD_PROJECT, then gcloud's project.
+    public var project: String
+    /// `global` or a region like `us-central1`; empty for `global`.
+    public var location: String
+
+    public init(model: String = defaultModel, project: String = "", location: String = "") {
+        self.model = model
+        self.project = project
+        self.location = location
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+        project = try container.decodeIfPresent(String.self, forKey: .project) ?? ""
+        location = try container.decodeIfPresent(String.self, forKey: .location) ?? ""
+    }
+}
+
 /// The Built-in model id of Apple's on-device model, for either role.
 public let appleModelId = "apple"
 
@@ -165,6 +220,10 @@ public enum ModelSelection: Sendable, Equatable, Codable {
     /// `modelId` is `appleModelId` for Apple's on-device model, otherwise a downloaded model's id.
     case builtIn(modelId: String)
     case endpoint(EndpointConfig)
+    /// Chat only.
+    case bedrock(BedrockConfig)
+    /// Chat only.
+    case googleCloud(GoogleCloudConfig)
 
     public static let apple = ModelSelection.builtIn(modelId: appleModelId)
 
@@ -175,12 +234,22 @@ public enum ModelSelection: Sendable, Equatable, Codable {
         return nil
     }
 
+    public var bedrock: BedrockConfig? {
+        if case let .bedrock(config) = self { return config }
+        return nil
+    }
+
+    public var googleCloud: GoogleCloudConfig? {
+        if case let .googleCloud(config) = self { return config }
+        return nil
+    }
+
     public var builtInModelId: String? {
         if case let .builtIn(id) = self { return id }
         return nil
     }
 
-    private enum CodingKeys: String, CodingKey { case kind, modelId, baseUrl, model, apiKey }
+    private enum CodingKeys: String, CodingKey { case kind, modelId, baseUrl, model, apiKey, region, profile, project, location }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -189,6 +258,10 @@ public enum ModelSelection: Sendable, Equatable, Codable {
             self = .builtIn(modelId: try container.decode(String.self, forKey: .modelId))
         case "endpoint":
             self = .endpoint(try EndpointConfig(from: decoder))
+        case "bedrock":
+            self = .bedrock(try BedrockConfig(from: decoder))
+        case "googleCloud":
+            self = .googleCloud(try GoogleCloudConfig(from: decoder))
         case let other:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container, debugDescription: "unknown kind \(other)")
         }
@@ -205,14 +278,27 @@ public enum ModelSelection: Sendable, Equatable, Codable {
             try container.encode(config.baseUrl, forKey: .baseUrl)
             try container.encode(config.model, forKey: .model)
             try container.encode(config.apiKey, forKey: .apiKey)
+        case let .bedrock(config):
+            try container.encode("bedrock", forKey: .kind)
+            try container.encode(config.model, forKey: .model)
+            try container.encode(config.region, forKey: .region)
+            try container.encode(config.profile, forKey: .profile)
+        case let .googleCloud(config):
+            try container.encode("googleCloud", forKey: .kind)
+            try container.encode(config.model, forKey: .model)
+            try container.encode(config.project, forKey: .project)
+            try container.encode(config.location, forKey: .location)
         }
     }
 }
 
-/// A change to a role's selection. Endpoint fields left nil keep their current value.
+/// A change to a role's selection. Fields left nil keep their current value; switching to Bedrock or
+/// Google Cloud starts from their defaults.
 public enum ModelSelectionPatch: Sendable, Equatable {
     case builtIn(modelId: String)
     case endpoint(baseUrl: String? = nil, model: String? = nil, apiKey: String? = nil)
+    case bedrock(model: String? = nil, region: String? = nil, profile: String? = nil)
+    case googleCloud(model: String? = nil, project: String? = nil, location: String? = nil)
 }
 
 public struct DictionaryEntry: Sendable, Equatable, Codable, Identifiable {
